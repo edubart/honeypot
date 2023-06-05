@@ -36,7 +36,7 @@ describe("honeypot", function()
         expect.equal(res.status, "rejected")
     end)
 
-    it("should reject incomplete deposit of an addition overflow", function()
+    it("should reject deposit of an addition overflow", function()
         local rolling_machine = cartesi_rolling_machine(MACHINE_STORED_DIR)
         local res = rolling_machine:advance_state({
             metadata = {
