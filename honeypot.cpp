@@ -12,7 +12,7 @@
 
 #include <algorithm>
 #include <cstring>
-#include <execution>
+#include <exception>
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
@@ -30,7 +30,7 @@
 #include "config.h"
 
 static int rollup_fd;
-static boost::multiprecision::uint256_t dapp_balance;
+static boost::multiprecision::checked_uint256_t dapp_balance;
 
 static int open_rollup_device() {
     int rollup_fd = open(ROLLUP_DEVICE_NAME, O_RDWR);
@@ -126,8 +126,6 @@ static void send_report(const struct rollup_advance_state request,
 
     ss << " (msg_sender: 0x"
        << hex(request.metadata.msg_sender, CARTESI_ROLLUP_ADDRESS_SIZE)
-       << ", payload: 0x"
-       << hex(request.payload.data, request.payload.length)
        << ")";
 
     send_report(ss.str(), true);
@@ -154,6 +152,10 @@ static bool process_deposit(rollup_bytes input_payload,
     const uint8_t SUCCESSFUL_DEPOSIT = 1;
     size_t pos;
 
+    if (input_payload.length < (2 * CARTESI_ROLLUP_ADDRESS_SIZE + 1 + FIELD_SIZE)) {
+        return false;
+    }
+
     // Validate payload comes from a successful deposit
     if (SUCCESSFUL_DEPOSIT != *input_payload.data)
     {
@@ -178,7 +180,11 @@ static bool process_deposit(rollup_bytes input_payload,
     boost::multiprecision::import_bits(amount,
                                        amount_bytes.begin(),
                                        amount_bytes.end());
-    dapp_balance += amount;
+    try {
+        dapp_balance += amount;
+    } catch (std::overflow_error& overflow) {
+        return false;
+    }
 
     *amount_deposited = amount;
     return true;
@@ -301,13 +307,18 @@ int main(int argc, char** argv) try {
 
     finish_request.accept_previous_request = true;
     while (true) {
-        rollup_ioctl(rollup_fd, IOCTL_ROLLUP_FINISH, &finish_request);
-        auto len = static_cast<uint64_t>(finish_request.next_request_payload_length);
-        payload_buffer.resize(len);
-        if (finish_request.next_request_type == CARTESI_ROLLUP_ADVANCE_STATE) {
-            handle_advance(rollup_fd, {payload_buffer.data(), len});
-        } else if (finish_request.next_request_type == CARTESI_ROLLUP_INSPECT_STATE) {
-            handle_inspect(rollup_fd, {payload_buffer.data(), len});
+        try {
+            rollup_ioctl(rollup_fd, IOCTL_ROLLUP_FINISH, &finish_request);
+            auto len = static_cast<uint64_t>(finish_request.next_request_payload_length);
+            payload_buffer.resize(len);
+            if (finish_request.next_request_type == CARTESI_ROLLUP_ADVANCE_STATE) {
+                finish_request.accept_previous_request = handle_advance(rollup_fd, {payload_buffer.data(), len});
+            } else if (finish_request.next_request_type == CARTESI_ROLLUP_INSPECT_STATE) {
+                finish_request.accept_previous_request = handle_inspect(rollup_fd, {payload_buffer.data(), len});
+            }
+        } catch(std::exception& e) {
+            // TODO: send report of the failure
+            finish_request.accept_previous_request = false;
         }
     }
     close(rollup_fd);
