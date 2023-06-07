@@ -158,7 +158,18 @@ describe("honeypot", function()
         local res = rolling_machine:advance_state({
             metadata = {
                 msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
-                timestamp = '0x10000000000000000'
+            },
+            payload = {
+                offset = 32,
+                length = 64*1024*1024,
+                data = '',
+            },
+        })
+        expect.equal(res.status, "rejected")
+
+        res = rolling_machine:advance_state({
+            metadata = {
+                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
             },
             payload = {
                 offset = 32,
