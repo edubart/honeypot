@@ -317,7 +317,7 @@ int main(int argc, char** argv) try {
                 finish_request.accept_previous_request = handle_inspect(rollup_fd, {payload_buffer.data(), len});
             }
         } catch(std::exception& e) {
-            std::cout << "exception" << e.what() << std::endl;
+            std::cout << "[DApp] Exception: " << e.what() << std::endl;
             // TODO: send report of the failure
             finish_request.accept_previous_request = false;
         }

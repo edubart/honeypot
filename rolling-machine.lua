@@ -2,6 +2,7 @@ local jsonrpc = require("cartesi.jsonrpc")
 local cartesi = require("cartesi")
 local unistd = require("posix.unistd")
 local sys_wait = require("posix.sys.wait")
+local sys_socket = require("posix.sys.socket")
 local time = require("posix.time")
 local encode_utils = require("encode-utils")
 
@@ -15,42 +16,49 @@ local next_remote_port = 9000
 local rolling_machine = {}
 rolling_machine.__index = rolling_machine
 
-local function spawn_remote_cartesi_machine(port)
+local function wait_remote_address(remote_addr, remote_port)
+    local remote_addrinfo = assert(sys_socket.getaddrinfo(remote_addr, remote_port, {
+        family=sys_socket.AF_INET,
+        socktype=sys_socket.SOCK_STREAM
+    }))
+    local fd = assert(sys_socket.socket(sys_socket.AF_INET, sys_socket.SOCK_STREAM, 0))
+    -- wait up to 1 second
+    local ok, err
+    for _=1,250 do
+        ok, err = sys_socket.connect(fd, remote_addrinfo[1])
+        if ok then break end
+        time.nanosleep({ tv_sec = 0, tv_nsec = 4 * 1000 * 1000 })
+    end
+    unistd.close(fd)
+    assert(ok, err)
+end
+
+local function spawn_remote_cartesi_machine(dir, remote_port)
     local remote_pid = assert(unistd.fork())
-    if not port then
-        port = next_remote_port
+    if not remote_port then
+        remote_port = next_remote_port
         next_remote_port = next_remote_port + 1
     end
-    local remote_address = "127.0.0.1:" .. port
+    local remote_addr = '127.0.0.1'
+    local remote_endpoint = remote_addr..':'..remote_port
     if remote_pid == 0 then -- child
-        -- local fcntl = require 'posix.fcntl'
-        -- local devnull_fd = assert(fcntl.open("/dev/null", fcntl.O_RDWR))
-        -- assert(unistd.dup2(devnull_fd, unistd.STDOUT_FILENO))
         assert(unistd.execp("jsonrpc-remote-cartesi-machine", {
             [0] = "jsonrpc-remote-cartesi-machine",
-            remote_address,
+            "--log-level=warning",
+            remote_endpoint,
         }))
         unistd._exit(0)
     else -- parent
-        time.nanosleep({ tv_sec = 0, tv_nsec = 100 * 1000 * 1000 })
-        local remote = assert(jsonrpc.stub(remote_address))
-        local function remote_shutdown()
-            remote.shutdown()
-            sys_wait.wait(remote_pid)
-            setmetatable(remote, nil)
-        end
-        setmetatable(remote, {
-            __close = remote_shutdown,
-            __gc = remote_shutdown,
-        })
-        return remote
+        wait_remote_address(remote_addr, remote_port)
+        local remote = assert(jsonrpc.stub(remote_endpoint))
+        local machine = remote.machine(dir, {skip_root_hash_check=true, skip_version_check=true})
+        return remote_pid, remote, machine
     end
 end
 
 setmetatable(rolling_machine, {
     __call = function(rolling_machine_mt, dir, port)
-        local remote = spawn_remote_cartesi_machine(port)
-        local machine = remote.machine(dir)
+        local remote_pid, remote, machine = spawn_remote_cartesi_machine(dir, port)
         local config = machine:get_initial_config()
         return setmetatable({
             default_msg_sender = string.rep("\x00", 32),
@@ -58,13 +66,26 @@ setmetatable(rolling_machine, {
             input_number = 0,
             block_number = 0,
             remote = remote,
+            remote_pid = remote_pid,
             machine = machine,
             config = config,
         }, rolling_machine_mt)
     end,
 })
 
-function rolling_machine:__close()
+function rolling_machine:fork()
+    local forked_remote = assert(jsonrpc.stub(self.remote.fork()))
+    local forked_self = {}
+    for k,v in pairs(self) do
+        forked_self[k] = v
+    end
+    forked_self.remote = forked_remote
+    forked_self.machine = forked_remote.get_machine()
+    forked_self.remote_pid = nil
+    return setmetatable(forked_self, rolling_machine)
+end
+
+function rolling_machine:destroy()
     if self.machine then
         self.machine:destroy()
         self.machine = nil
@@ -73,7 +94,15 @@ function rolling_machine:__close()
         self.remote:shutdown()
         self.remote = nil
     end
+    if self.remote_pid then
+        sys_wait.wait(self.remote_pid)
+        self.remote_pid = nil
+    end
+    setmetatable(self, nil)
 end
+
+rolling_machine.__close = rolling_machine.destroy
+rolling_machine.__gc = rolling_machine.destroy
 
 -- Write the input metadata into the rollup input_metadata memory range.
 function rolling_machine:write_input_metadata(input_metadata)
@@ -184,14 +213,16 @@ function rolling_machine:run_collecting_events()
     end
 end
 
-function rolling_machine:advance_state(input)
+function rolling_machine:advance_state(input, no_rollback)
     -- Check if we can perform an advance request
     assert(
         self:read_yield_reason() == cartesi.machine.HTIF_YIELD_REASON_RX_ACCEPTED,
         "machine must be yielded with rx accepted to advance state"
     )
     -- Save machine state
-    self.machine:snapshot()
+    if not no_rollback then
+        self.machine:snapshot()
+    end
     -- Write the input metadata and data
     self:write_input_metadata(input.metadata or {})
     self:write_input_payload(input.payload or "")
@@ -203,21 +234,25 @@ function rolling_machine:advance_state(input)
     local res = self:run_collecting_events()
     -- Restore machine state for rejected requests
     if res.status == "rejected" then
-        self.machine:rollback()
+        if not no_rollback then
+            self.machine:rollback()
+        end
     elseif res.status == "accepted" then
         self.input_number = self.input_number + 1
     end
     return res
 end
 
-function rolling_machine:inspect_state(input)
+function rolling_machine:inspect_state(input, no_rollback)
     -- Check if we can perform an inspect request
     assert(
         self:read_yield_reason() == cartesi.machine.HTIF_YIELD_REASON_RX_ACCEPTED,
         "machine must be yielded with rx accepted to inspect state"
     )
     -- Save machine state
-    self.machine:snapshot()
+    if not no_rollback then
+        self.machine:snapshot()
+    end
     -- Write the input metadata and data
     self:write_input_metadata(input.metadata or {})
     self:write_input_payload(input.payload or "")
@@ -228,7 +263,9 @@ function rolling_machine:inspect_state(input)
     -- Run the inspect request
     local res = self:run_collecting_events()
     -- Restore machine state
-    self.machine:rollback()
+    if not no_rollback then
+        self.machine:rollback()
+    end
     return res
 end
 

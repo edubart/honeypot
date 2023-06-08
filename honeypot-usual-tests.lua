@@ -10,7 +10,7 @@ local ERC20_ALICE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 local MACHINE_STORED_DIR = ".sunodo/image"
 
 describe("honeypot", function()
-    local rolling_machine = cartesi_rolling_machine(MACHINE_STORED_DIR)
+    local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR)
 
     it("should accept first deposit", function()
         local res = rolling_machine:advance_state({
