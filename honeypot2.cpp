@@ -12,7 +12,7 @@
 
 #include <cstdint>
 #include <cerrno> // errno
-#include <cstring> // memcpy, memcmp
+#include <cstring> // memcpy, memcmp, strerror
 #include <cstdio> // fprintf
 
 extern "C" {
@@ -20,37 +20,34 @@ extern "C" {
 #include <fcntl.h> // open
 #include <sys/ioctl.h> // ioctl
 #include <linux/cartesi/rollup.h>
+// #include "rollup.h"
 }
 
-// Be160, Be256
-
-struct be160 {
+// ERC-20 Address
+struct erc20_address {
     uint8_t bytes[20];
 };
 
+static bool erc20addr_equal(const erc20_address& a, const erc20_address& b) {
+    return memcmp(a.bytes, b.bytes, 20) == 0;
+}
+
+// Big Endian 256
 struct be256 {
     uint8_t bytes[32];
 };
 
-static bool be160_equal(const be160& a, const be160& b) {
-    return memcmp(a.bytes, b.bytes, sizeof(be160)) == 0;
-}
-
 static bool be256_equal(const be256& a, const be256& b) {
-    return memcmp(a.bytes, b.bytes, sizeof(be256)) == 0;
-}
-
-static be256 be160_to_be256(const be160& a) {
-    be256 res{};
-    memcpy(&res.bytes[sizeof(be256) - sizeof(be160)], &a.bytes[0], sizeof(be160));
-    return res;
+    return memcmp(a.bytes, b.bytes, 32) == 0;
 }
 
 static bool be256_checked_add(be256& res, const be256& a, const be256& b) {
     uint16_t carry = 0;
-    for (uint32_t i=0; i < sizeof(be256); ++i) {
-        const uint32_t j = static_cast<uint32_t>(sizeof(be256)) - i - 1;
-        const uint16_t tmp = static_cast<uint16_t>(carry + a.bytes[j] + b.bytes[j]);
+    for (uint32_t i=0; i < 32; ++i) {
+        const uint32_t j = 32 - i - 1;
+        const uint16_t aj  = static_cast<uint16_t>(a.bytes[j]);
+        const uint16_t bj  = static_cast<uint16_t>(b.bytes[j]);
+        const uint16_t tmp = static_cast<uint16_t>(carry + aj + bj);
         carry = tmp >> 8;
         res.bytes[j] = static_cast<uint8_t>(tmp & 0xff);
     }
@@ -73,11 +70,10 @@ static bool rollup_write_report(int rollup_fd, const T& payload) {
 }
 
 template <typename T>
-static bool rollup_write_voucher(int rollup_fd, const be160& destination, const T& payload) {
-    struct rollup_voucher voucher{};
-    memcpy(voucher.destination, destination.bytes, sizeof(be160));
+static bool rollup_write_voucher(int rollup_fd, const erc20_address& destination, const T& payload) {
+    rollup_voucher voucher{};
+    memcpy(voucher.destination, destination.bytes, sizeof(erc20_address));
     voucher.payload = { const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(&payload)), sizeof(payload) };
-    // TODO: what about voucher index?
     if (ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_VOUCHER, &voucher) < 0) {
         (void) fprintf(stderr, "[dapp] unable to write rollup voucher: %s\n", strerror(errno));
         return false;
@@ -156,20 +152,21 @@ enum erc20_deposit_status : uint8_t {
     ERC20_DEPOSIT_SUCCESSFUL = 1,
 };
 
-struct erc20_deposit {
+struct erc20_deposit_payload {
     uint8_t status;
-    be160 contract_address;
-    be160 sender_address;
+    erc20_address contract_address;
+    erc20_address sender_address;
     be256 amount;
 };
 
 struct erc20_transfer_payload {
     uint8_t bytecode[4];
-    be256 destination;
+    uint8_t padding[12];
+    erc20_address destination;
     be256 amount;
 };
 
-static erc20_transfer_payload encode_erc20_transfer(be256 destination, be256 amount) {
+static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, be256 amount) {
     erc20_transfer_payload payload{};
     payload.bytecode[0] = 0xa9;
     payload.bytecode[1] = 0x05;
@@ -182,9 +179,9 @@ static erc20_transfer_payload encode_erc20_transfer(be256 destination, be256 amo
 
 // Honeypot
 
-static constexpr be160 ERC20_PORTAL_ADDRESS     = {{0x43, 0x40, 0xac, 0x4F, 0xcd, 0xFC, 0x5e, 0xF8, 0xd3, 0x49, 0x30, 0xC9, 0x6B, 0xBa, 0xc2, 0xAf, 0x13, 0x01, 0xDF, 0x40}};
-static constexpr be160 ERC20_WITHDRAWAL_ADDRESS = {{0x70, 0x99, 0x79, 0x70, 0xC5, 0x18, 0x12, 0xdc, 0x3A, 0x01, 0x0C, 0x7d, 0x01, 0xb5, 0x0e, 0x0d, 0x17, 0xdc, 0x79, 0xC8}};
-static constexpr be160 ERC20_CONTRACT_ADDRESS   = {{0xc6, 0xe7, 0xDF, 0x5E, 0x7b, 0x4f, 0x2A, 0x27, 0x89, 0x06, 0x86, 0x2b, 0x61, 0x20, 0x58, 0x50, 0x34, 0x4D, 0x4e, 0x7d}};
+static constexpr erc20_address ERC20_PORTAL_ADDRESS     = {{0x43, 0x40, 0xac, 0x4F, 0xcd, 0xFC, 0x5e, 0xF8, 0xd3, 0x49, 0x30, 0xC9, 0x6B, 0xBa, 0xc2, 0xAf, 0x13, 0x01, 0xDF, 0x40}};
+static constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {{0x70, 0x99, 0x79, 0x70, 0xC5, 0x18, 0x12, 0xdc, 0x3A, 0x01, 0x0C, 0x7d, 0x01, 0xb5, 0x0e, 0x0d, 0x17, 0xdc, 0x79, 0xC8}};
+static constexpr erc20_address ERC20_CONTRACT_ADDRESS   = {{0xc6, 0xe7, 0xDF, 0x5E, 0x7b, 0x4f, 0x2A, 0x27, 0x89, 0x06, 0x86, 0x2b, 0x61, 0x20, 0x58, 0x50, 0x34, 0x4D, 0x4e, 0x7d}};
 
 enum honeypot_status : uint8_t {
     HONEYPOT_STATUS_SUCCESS = 0,
@@ -209,18 +206,18 @@ static be256 honeypot_balance{};
 
 static bool honeypot_deposit_balance(int rollup_fd, const rollup_advance_state& req) {
     // Report an error if the payload length mismatch ERC-20 deposit length
-    if (req.payload.length != sizeof(erc20_deposit)) {
+    if (req.payload.length != sizeof(erc20_deposit_payload)) {
         (void) fprintf(stderr, "[dapp] invalid deposit payload length\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_INVALID_PAYLOAD_LENGTH});
         return false;
     }
-    erc20_deposit deposit = *reinterpret_cast<const erc20_deposit*>(req.payload.data);
+    erc20_deposit_payload deposit = *reinterpret_cast<const erc20_deposit_payload*>(req.payload.data);
     if (deposit.status != ERC20_DEPOSIT_SUCCESSFUL) {
         (void) fprintf(stderr, "[dapp] deposit erc20 transfer failed\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED});
         return false;
     }
-    if (!be160_equal(deposit.contract_address, ERC20_CONTRACT_ADDRESS)) {
+    if (!erc20addr_equal(deposit.contract_address, ERC20_CONTRACT_ADDRESS)) {
         (void) fprintf(stderr, "[dapp] invalid deposit contract address\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT});
         return false;
@@ -251,7 +248,7 @@ static bool honeypot_withdraw_balance(int rollup_fd, const rollup_advance_state&
         return false;
     }
     // Issue a voucher with the entire balance
-    erc20_transfer_payload transfer_payload = encode_erc20_transfer(be160_to_be256(ERC20_WITHDRAWAL_ADDRESS), honeypot_balance);
+    erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, honeypot_balance);
     if (!rollup_write_voucher(rollup_fd, ERC20_CONTRACT_ADDRESS, transfer_payload)) {
         (void) fprintf(stderr, "[dapp] unable to issue withdraw voucher\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED});
@@ -266,10 +263,10 @@ static bool honeypot_withdraw_balance(int rollup_fd, const rollup_advance_state&
 }
 
 static bool honeypot_advance_state(int rollup_fd, const rollup_advance_state& req) {
-    const be160 sender_address = *reinterpret_cast<const be160*>(req.metadata.msg_sender);
-    if (be160_equal(sender_address, ERC20_PORTAL_ADDRESS)) { // Deposit
+    const erc20_address sender_address = *reinterpret_cast<const erc20_address*>(req.metadata.msg_sender);
+    if (erc20addr_equal(sender_address, ERC20_PORTAL_ADDRESS)) { // Deposit
         return honeypot_deposit_balance(rollup_fd, req);
-    } else if (be160_equal(sender_address, ERC20_WITHDRAWAL_ADDRESS)) { // Withdraw
+    } else if (erc20addr_equal(sender_address, ERC20_WITHDRAWAL_ADDRESS)) { // Withdraw
         return honeypot_withdraw_balance(rollup_fd, req);
     } else { // Invalid sender
         (void) fprintf(stderr, "[dapp] invalid advance state request\n");
