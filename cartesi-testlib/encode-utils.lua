@@ -26,15 +26,15 @@ end
 
 function encode_utils.encode_be8(v) return encode_utils.encode_be(8, v) end
 
-function encode_utils.encode_be160(v, trim) return encode_utils.encode_be(160, v, trim) end
+function encode_utils.encode_erc20_address(v, trim) return encode_utils.encode_be(160, v, trim) end
 
 function encode_utils.encode_be256(v, trim) return encode_utils.encode_be(256, v, trim) end
 
 function encode_utils.encode_erc20_deposit(deposit)
     return table.concat({
         encode_utils.encode_be8(deposit.successful and 1 or 0),
-        encode_utils.encode_be160(deposit.contract_address),
-        encode_utils.encode_be160(deposit.sender_address),
+        encode_utils.encode_erc20_address(deposit.contract_address),
+        encode_utils.encode_erc20_address(deposit.sender_address),
         encode_utils.encode_be256(deposit.amount),
         deposit.extra_data,
     })
@@ -43,7 +43,8 @@ end
 function encode_utils.encode_erc20_transfer_voucher(voucher)
     return table.concat({
         "\169\5\156\187", -- First 4 bytes of "transfer(address,uint256)".
-        encode_utils.encode_be256(voucher.destination_address),
+        string.rep('\x00', 12),
+        encode_utils.encode_erc20_address(voucher.destination_address),
         encode_utils.encode_be256(voucher.amount),
     })
 end

@@ -10,324 +10,310 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-#include <algorithm>
-#include <cstring>
-#include <exception>
-#include <fcntl.h>
-#include <iomanip>
-#include <iostream>
-#include <memory>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <sys/ioctl.h>
-#include <unistd.h>
-#include <vector>
+#include <cstdint>
+#include <cerrno>    // errno
+#include <cstdio>    // fprintf
+#include <cstring>   // strerror
+#include <array>     // std::array
+#include <algorithm> // std::copy
 
-#include <boost/multiprecision/cpp_int.hpp>
-
-#include "honeypot.h"
-#include "config.h"
-
-static int rollup_fd;
-static boost::multiprecision::checked_uint256_t dapp_balance;
-
-static int open_rollup_device() {
-    int rollup_fd = open(ROLLUP_DEVICE_NAME, O_RDWR);
-    if (rollup_fd < 0) {
-        throw std::system_error(errno,
-                                std::generic_category(),
-                                "unable to open rollup device");
-    }
-    return rollup_fd;
+extern "C" {
+#include <fcntl.h>     // open
+#include <unistd.h>    // close
+#include <sys/ioctl.h> // ioctl
+#include <linux/cartesi/rollup.h>
 }
 
-static void rollup_ioctl(int rollup_fd, unsigned long request, void *data) {
-    if (ioctl(rollup_fd, request, data) < 0) {
-        throw std::system_error(errno,
-                                std::generic_category(),
-                                "unable to perform operation");
+////////////////////////////////////////////////////////////////////////////////
+// ERC-20 Address and Big Endian 256 primitives.
+
+using erc20_address = std::array<uint8_t, 20>;
+using be256 = std::array<uint8_t, 32>;
+
+// Adds `a` and `b` and store in `res`.
+// Returns true when there is no arithmetic overflow, false otherwise.
+static bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
+    uint16_t carry = 0;
+    for (uint32_t i = 0; i < static_cast<uint32_t>(res.size()); ++i) {
+        const uint32_t j = static_cast<uint32_t>(res.size()) - i - 1;
+        const uint16_t aj = static_cast<uint16_t>(a[j]);
+        const uint16_t bj = static_cast<uint16_t>(b[j]);
+        const uint16_t tmp = static_cast<uint16_t>(carry + aj + bj);
+        carry = tmp >> 8;
+        res[j] = static_cast<uint8_t>(tmp & 0xff);
     }
+    return carry == 0;
 }
 
-static std::string hex(const uint8_t *data, uint64_t length) {
-    std::stringstream ss;
-    for (auto b: std::string_view{reinterpret_cast<const char *>(data),
-                                  length}) {
-        ss << std::hex << std::setfill('0') << std::setw(2)
-           << static_cast<unsigned>(b);
-    }
-    return ss.str();
-}
+////////////////////////////////////////////////////////////////////////////////
+// Rollup utilities.
 
-static void cpp_int_to_bytes(bool fit_32_bytes, const boost::multiprecision::uint256_t cpp_int,
-                             std::vector<uint8_t> *byte_vector) {
-    boost::multiprecision::export_bits(cpp_int,
-                                       std::back_inserter(*byte_vector),
-                                       8);
-    if (fit_32_bytes) {
-        // As export_bits generate only as many bytes as necessary to fit
-        // dapp_balance's value, we need to increase the vector length to
-        // FIELD_SIZE and prepend the value with as many leading zeroes as
-        // needed.
-        byte_vector->erase(byte_vector->begin(),
-                           byte_vector->begin() +
-                           (byte_vector->size() -
-                            FIELD_SIZE));
-    }
-}
+struct rollup_advance_input_metadata {
+    erc20_address sender;
+    uint64_t block_number;
+    uint64_t timestamp;
+    uint64_t epoch_index;
+    uint64_t input_index;
+};
 
-static void cpp_int_to_bytes(const boost::multiprecision::uint256_t cpp_int,
-                             std::vector<uint8_t> *byte_vector) {
-    cpp_int_to_bytes(false, cpp_int, byte_vector);
-}
-
-static void send_report(std::string message, bool verbose) {
-    struct rollup_report report {};
-    std::vector<uint8_t> message_bytes(message.begin(),
-                                       message.end());
-    report.payload = {message_bytes.data(), message_bytes.size()};
-    rollup_ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_REPORT, &report);
-
-    if (verbose) {
-        std::cout << "[DApp] " << message << std::endl;
-    }
-}
-
-static void send_report(const struct rollup_advance_state request,
-                        const int8_t result,
-                        std::string message) {
-    std::stringstream ss;
-    ss << "0x0" << std::to_string(result) << ": ";
-
-    switch (result) {
-    case OP_DEPOSIT_PROCESSED:
-        ss << "Deposit processed";
-        break;
-    case OP_VOUCHER_ISSUED:
-        ss << "Voucher issued";
-        break;
-    case OP_NO_FUNDS:
-        ss << "No funds";
-        break;
-    case OP_INVALID_INPUT:
-        ss << "Invalid input";
-        break;
-    case OP_INVALID_DEPOSIT:
-        ss << "Invalid deposit";
-        break;
-    default:
-        ss << "Unsupported result";
-    }
-
-    if (message != "") {
-        ss << " - " << message;
-    }
-
-    ss << " (msg_sender: 0x"
-       << hex(request.metadata.msg_sender, CARTESI_ROLLUP_ADDRESS_SIZE)
-       << ")";
-
-    send_report(ss.str(), true);
-}
-
-/*
- *  Expected format for ERC-20 deposits inputs:
- *
- * 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                   ERC-20 TRANSFER HEADER                      |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                         DEPOSITOR                             |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |            ZERO-PADDED ERC-20 CONTRACT ADDRESS                |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                           AMOUNT                              |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                           L1-DATA                             |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- */
-static bool process_deposit(rollup_bytes input_payload,
-                            boost::multiprecision::uint256_t *amount_deposited) {
-    const uint8_t SUCCESSFUL_DEPOSIT = 1;
-    size_t pos;
-
-    if (input_payload.length < (2 * CARTESI_ROLLUP_ADDRESS_SIZE + 1 + FIELD_SIZE)) {
+// Write a report POD into rollup device.
+template <typename T>
+static bool rollup_write_report(int rollup_fd, const T &payload) {
+    rollup_report report{};
+    report.payload = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(&payload)), sizeof(payload)};
+    if (ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_REPORT, &report) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to write rollup report: %s\n", std::strerror(errno));
         return false;
     }
-
-    // Validate payload comes from a successful deposit
-    if (SUCCESSFUL_DEPOSIT != *input_payload.data)
-    {
-        return false;
-    }
-
-    // Validate ERC-20 contract address
-    pos = 1;
-    if (std::memcmp(ERC20_CONTRACT_ADDRESS.data(),
-                    input_payload.data + pos,
-                    CARTESI_ROLLUP_ADDRESS_SIZE) != 0) {
-        return false;
-    }
-
-    // Read deposit amount
-    pos += 2 * CARTESI_ROLLUP_ADDRESS_SIZE;
-    std::vector<uint8_t> amount_bytes;
-    std::copy(&input_payload.data[pos],
-              &input_payload.data[pos + FIELD_SIZE],
-              std::back_inserter(amount_bytes));
-    boost::multiprecision::uint256_t amount;
-    boost::multiprecision::import_bits(amount,
-                                       amount_bytes.begin(),
-                                       amount_bytes.end());
-    try {
-        dapp_balance += amount;
-    } catch (std::overflow_error& overflow) {
-        return false;
-    }
-
-    *amount_deposited = amount;
     return true;
 }
 
-/*
- * Payload format of a Voucher for ERC-20 withdrawals:
- *
- * 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |FUNC.  |             ZERO-PADDED ACCOUNT ADDRESS               |
- * |SELEC. |                                                       |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |       |                        AMOUNT                         |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |       |
- * +-+-+-+-+
- */
-static void issue_voucher() {
+// Write a voucher POD into rollup device.
+template <typename T>
+static bool rollup_write_voucher(int rollup_fd, const erc20_address &destination, const T &payload) {
     rollup_voucher voucher{};
-    std::vector<uint8_t> voucher_payload;
-
-    // Set ERC-20 contract address
-    std::copy(
-        ERC20_CONTRACT_ADDRESS.begin(),
-        ERC20_CONTRACT_ADDRESS.end(),
-        voucher.destination);
-
-    // Append transfer function selector
-    voucher_payload.insert(
-        voucher_payload.end(),
-        TRANSFER_FUNCTION_SELECTOR_BYTES.begin(),
-        TRANSFER_FUNCTION_SELECTOR_BYTES.end());
-
-    // Add 12-byte long address padding
-    voucher_payload.insert(voucher_payload.end(), ADDRESS_PADDING_SIZE, 0);
-
-    // Add Pre-defined withdrawal address
-    voucher_payload.insert(
-        voucher_payload.end(),
-        WITHDRAWAL_ADDRESS.begin(),
-        WITHDRAWAL_ADDRESS.end());
-
-    // Export DApp balance to 32-byte vector
-    std::vector<uint8_t> dapp_balance_bytes(FIELD_SIZE);
-    cpp_int_to_bytes(true,
-                     dapp_balance,
-                     &dapp_balance_bytes);
-
-    // Add balance
-    voucher_payload.insert(
-        voucher_payload.end(),
-        dapp_balance_bytes.begin(),
-        dapp_balance_bytes.end());
-
-    voucher.payload.length = voucher_payload.size();
-    voucher.payload.data = voucher_payload.data();
-
-    rollup_ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_VOUCHER, &voucher);
-
-    dapp_balance = 0;
-}
-
-static bool handle_advance(int rollup_fd, rollup_bytes payload_buffer) {
-    std::array<uint8_t,CARTESI_ROLLUP_ADDRESS_SIZE> msg_sender;
-    struct rollup_advance_state request {};
-    request.payload = payload_buffer;
-    bool accept = true;
-
-    rollup_ioctl(rollup_fd, IOCTL_ROLLUP_READ_ADVANCE_STATE, &request);
-
-    std::copy(request.metadata.msg_sender,
-              request.metadata.msg_sender + CARTESI_ROLLUP_ADDRESS_SIZE,
-              msg_sender.begin());
-
-    std::stringstream ss;
-    uint8_t result = OP_INVALID_INPUT;
-    if (msg_sender == ERC20_PORTAL_ADDRESS) {
-        boost::multiprecision::uint256_t amount;
-        accept = process_deposit(request.payload, &amount);
-        if (accept) {
-            ss << "ERC-20 amount deposited: " << std::dec << amount << ". "
-               << "New pot size = " << dapp_balance;
-            result = OP_DEPOSIT_PROCESSED;
-        } else {
-            result = OP_INVALID_DEPOSIT;
-        }
-    } else if (msg_sender == WITHDRAWAL_ADDRESS) {
-        if (dapp_balance > 0) {
-            issue_voucher();
-            result = OP_VOUCHER_ISSUED;
-        } else {
-            result = OP_NO_FUNDS;
-            accept = false;
-        }
-    } else {
-        accept = false;
+    std::copy(destination.begin(), destination.end(), voucher.destination);
+    voucher.payload = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(&payload)), sizeof(payload)};
+    if (ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_VOUCHER, &voucher) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to write rollup voucher: %s\n", std::strerror(errno));
+        return false;
     }
-
-    send_report(request, result, ss.str());
-    return accept;
-}
-
-static bool handle_inspect(int rollup_fd, rollup_bytes payload_buffer) {
-    std::vector<uint8_t> dapp_balance_bytes;
-    cpp_int_to_bytes(dapp_balance, &dapp_balance_bytes);
-
-    struct rollup_report report {};
-    report.payload = { dapp_balance_bytes.data(), dapp_balance_bytes.size() };
-    rollup_ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_REPORT, &report);
-
-    std::cout << "[DApp] Pot balance: 0x" << dapp_balance << std::endl;
     return true;
 }
 
-int main(int argc, char** argv) try {
-    rollup_fd = open_rollup_device();
-    struct rollup_finish finish_request {};
-    std::vector<uint8_t> payload_buffer;
-
-    finish_request.accept_previous_request = true;
-    while (true) {
-        try {
-            rollup_ioctl(rollup_fd, IOCTL_ROLLUP_FINISH, &finish_request);
-            auto len = static_cast<uint64_t>(finish_request.next_request_payload_length);
-            payload_buffer.resize(len);
-            if (finish_request.next_request_type == CARTESI_ROLLUP_ADVANCE_STATE) {
-                finish_request.accept_previous_request = handle_advance(rollup_fd, {payload_buffer.data(), len});
-            } else if (finish_request.next_request_type == CARTESI_ROLLUP_INSPECT_STATE) {
-                finish_request.accept_previous_request = handle_inspect(rollup_fd, {payload_buffer.data(), len});
-            }
-        } catch(std::exception& e) {
-            std::cout << "[DApp] Exception: " << e.what() << std::endl;
-            // TODO: send report of the failure
-            finish_request.accept_previous_request = false;
-        }
+// Finish last rollup request, wait for next rollup request and process it.
+// For every new request, reads an input POD and call backs its respective advance or inspect state handler.
+template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE>
+static bool rollup_process_next_request(int rollup_fd, bool accept_previous_request, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+    // Finish previous request and wait for the next request.
+    rollup_finish finish_request{};
+    finish_request.accept_previous_request = accept_previous_request;
+    if (ioctl(rollup_fd, IOCTL_ROLLUP_FINISH, &finish_request) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_FINISH: %s\n", std::strerror(errno));
+        return false;
     }
-    close(rollup_fd);
-    return 0;
-} catch (std::exception &e) {
-    std::cerr << "Caught exception: " << e.what() << '\n';
-    return 1;
-} catch (...) {
-    std::cerr << "Caught unknown exception\n";
-    return 1;
+    const uint64_t input_data_length = static_cast<uint64_t>(finish_request.next_request_payload_length);
+    if (finish_request.next_request_type == CARTESI_ROLLUP_ADVANCE_STATE) { // Advance state.
+        // Check if input payload length is supported.
+        if (input_data_length > sizeof(ADVANCE_INPUT)) {
+            (void) fprintf(stderr, "[dapp] advance request payload length is too large\n");
+            return false;
+        }
+        // Read the input.
+        ADVANCE_INPUT input_data{};
+        rollup_advance_state request{};
+        request.payload = {reinterpret_cast<uint8_t *>(&input_data), sizeof(input_data)};
+        if (ioctl(rollup_fd, IOCTL_ROLLUP_READ_ADVANCE_STATE, &request) < 0) {
+            (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_ADVANCE_STATE: %s\n", std::strerror(errno));
+            return false;
+        }
+        rollup_advance_input_metadata input_metadata{{},
+            request.metadata.block_number,
+            request.metadata.timestamp,
+            request.metadata.epoch_index,
+            request.metadata.input_index};
+        std::copy(std::begin(request.metadata.msg_sender), std::end(request.metadata.msg_sender), input_metadata.sender.begin());
+        // Call advance state handler.
+        return advance_cb(rollup_fd, input_metadata, input_data, input_data_length);
+    } else if (finish_request.next_request_type == CARTESI_ROLLUP_INSPECT_STATE) { // Inspect state.
+        // Check if input payload length is supported.
+        if (input_data_length > sizeof(INSPECT_INPUT)) {
+            (void) fprintf(stderr, "[dapp] inspect request payload length is too large\n");
+            return false;
+        }
+        // Read the input.
+        INSPECT_INPUT input_data{};
+        rollup_inspect_state request{};
+        request.payload = {reinterpret_cast<uint8_t *>(&input_data), sizeof(input_data)};
+        if (ioctl(rollup_fd, IOCTL_ROLLUP_READ_INSPECT_STATE, &request) < 0) {
+            (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_INSPECT_STATE: %s\n", std::strerror(errno));
+            return false;
+        }
+        // Call inspect state handler.
+        return inspect_cb(rollup_fd, input_data, input_data_length);
+    } else {
+        (void) fprintf(stderr, "[dapp] invalid request type\n");
+        return false;
+    }
+}
+
+template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE>
+static int rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+    // Open rollup device.
+    const int rollup_fd = open("/dev/rollup", O_RDWR);
+    if (rollup_fd < 0) {
+        // This operation may fail only for machines where the rollup device is not configured correctly.
+        (void) fprintf(stderr, "[dapp] unable to open rollup device: %s\n", std::strerror(errno));
+        return false;
+    }
+    // Rollup device requires that we initialize the first previous request as accepted.
+    bool accept_previous_request = true;
+    // Request loop, should loop forever.
+    while (true) {
+        accept_previous_request = rollup_process_next_request<ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, accept_previous_request, advance_cb, inspect_cb);
+    }
+    // The following code is unreachable, just here for sanity.
+    if (close(rollup_fd) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to close rollup device: %s\n", std::strerror(errno));
+        return false;
+    }
+    return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ERC-20 encoding utilities.
+
+enum erc20_deposit_status : uint8_t {
+    ERC20_DEPOSIT_FAILED = 0,
+    ERC20_DEPOSIT_SUCCESSFUL = 1,
+};
+
+// Payload encoding for ERC-20 deposits.
+struct erc20_deposit_payload {
+    uint8_t status;
+    erc20_address contract_address;
+    erc20_address sender_address;
+    be256 amount;
+};
+
+// Payload encoding for ERC-20 transfers.
+struct erc20_transfer_payload {
+    std::array<uint8_t, 16> bytecode;
+    erc20_address destination;
+    be256 amount;
+};
+
+// Encodes a ERC-20 transfer of amount to destination address.
+static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, be256 amount) {
+    erc20_transfer_payload payload{};
+    // Bytecode for solidity 'transfer(address,uint256)' in solidity.
+    payload.bytecode = {0xa9, 0x05, 0x9c, 0xbb};
+    // The last 12 bytes in bytecode should be zeros.
+    payload.destination = destination;
+    payload.amount = amount;
+    return payload;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Honeypot application.
+
+static constexpr erc20_address ERC20_PORTAL_ADDRESS     = {{0x43, 0x40, 0xac, 0x4F, 0xcd, 0xFC, 0x5e, 0xF8, 0xd3, 0x49, 0x30, 0xC9, 0x6B, 0xBa, 0xc2, 0xAf, 0x13, 0x01, 0xDF, 0x40}};
+static constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {{0x70, 0x99, 0x79, 0x70, 0xC5, 0x18, 0x12, 0xdc, 0x3A, 0x01, 0x0C, 0x7d, 0x01, 0xb5, 0x0e, 0x0d, 0x17, 0xdc, 0x79, 0xC8}};
+static constexpr erc20_address ERC20_CONTRACT_ADDRESS   = {{0xc6, 0xe7, 0xDF, 0x5E, 0x7b, 0x4f, 0x2A, 0x27, 0x89, 0x06, 0x86, 0x2b, 0x61, 0x20, 0x58, 0x50, 0x34, 0x4D, 0x4e, 0x7d}};
+
+// Status code sent in as reports for well formed advance requests.
+enum honeypot_advance_status : uint8_t {
+    HONEYPOT_STATUS_SUCCESS = 0,
+    HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED,
+    HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT,
+    HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW,
+    HONEYPOT_STATUS_WITHDRAW_NO_FUNDS,
+    HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED,
+};
+
+// POD for advance inputs.
+struct honeypot_advance_input {
+    erc20_deposit_payload deposit;
+};
+
+// POD for inspect inputs.
+struct honeypot_inspect_input {
+    uint8_t dummy; // Unused, just here because C++ cannot have empty structs.
+};
+
+// POD for advance reports.
+struct honeypot_advance_report {
+    honeypot_advance_status status;
+};
+
+// POD for inspect reports.
+struct honeypot_inspect_report {
+    be256 balance;
+};
+
+// State of the honeypot dapp.
+static be256 honeypot_balance{};
+
+// Process a ERC-20 deposit request.
+static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit) {
+    // Consider only successful ERC-20 deposits.
+    if (deposit.status != ERC20_DEPOSIT_SUCCESSFUL) {
+        (void) fprintf(stderr, "[dapp] deposit erc20 transfer failed\n");
+        (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED});
+        return false;
+    }
+    // Check token contract address.
+    if (deposit.contract_address != ERC20_CONTRACT_ADDRESS) {
+        (void) fprintf(stderr, "[dapp] invalid deposit contract address\n");
+        (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT});
+        return false;
+    }
+    // Add deposit amount to balance.
+    if (!be256_checked_add(honeypot_balance, honeypot_balance, deposit.amount)) {
+        (void) fprintf(stderr, "[dapp] deposit balance overflow\n");
+        (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW});
+        return false;
+    }
+    // Report that operation succeed.
+    (void) fprintf(stderr, "[dapp] successful deposit\n");
+    (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
+    return true;
+}
+
+// Process a ERC-20 withdraw request.
+static bool honeypot_withdraw(int rollup_fd) {
+    // Report an error if the balance is empty.
+    if (honeypot_balance == be256{}) {
+        (void) fprintf(stderr, "[dapp] no funds to withdraw\n");
+        (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_NO_FUNDS});
+        return false;
+    }
+    // Issue a voucher with the entire balance.
+    erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, honeypot_balance);
+    if (!rollup_write_voucher(rollup_fd, ERC20_CONTRACT_ADDRESS, transfer_payload)) {
+        (void) fprintf(stderr, "[dapp] unable to issue withdraw voucher\n");
+        (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED});
+        return false;
+    }
+    // Set balance to 0.
+    honeypot_balance = be256{};
+    // Report that operation succeed.
+    (void) fprintf(stderr, "[dapp] successful withdrawal\n");
+    (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
+    return true;
+}
+
+// Process a inspect balance request.
+static bool honeypot_inspect_balance(int rollup_fd) {
+    (void) fprintf(stderr, "[dapp] inspect balance request\n");
+    return rollup_write_report(rollup_fd, honeypot_inspect_report{honeypot_balance});
+}
+
+// Process advance state requests.
+static bool honeypot_advance_state(int rollup_fd, const rollup_advance_input_metadata &input_metadata, const honeypot_advance_input &input, uint64_t input_length) {
+    if (input_metadata.sender == ERC20_PORTAL_ADDRESS && input_length == sizeof(erc20_deposit_payload)) { // Deposit
+        return honeypot_deposit(rollup_fd, input.deposit);
+    } else if (input_metadata.sender == ERC20_WITHDRAWAL_ADDRESS && input_length == 0) { // Withdraw
+        return honeypot_withdraw(rollup_fd);
+    } else { // Invalid request
+        (void) fprintf(stderr, "[dapp] invalid advance state request\n");
+        return false;
+    }
+}
+
+// Process inspect state requests.
+static bool honeypot_inspect_state(int rollup_fd, const honeypot_inspect_input &input, uint64_t input_length) {
+    (void) input;
+    if (input_length == 0) { // Inspect balance.
+        return honeypot_inspect_balance(rollup_fd);
+    } else { // Invalid request.
+        (void) fprintf(stderr, "[dapp] invalid inspect state request\n");
+        return false;
+    }
+}
+
+// Application main.
+int main() {
+    // Process requests forever.
+    return rollup_request_loop<honeypot_advance_input, honeypot_inspect_input>(honeypot_advance_state, honeypot_inspect_state) ? 0 : -1;
 }

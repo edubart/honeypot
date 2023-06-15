@@ -1,6 +1,6 @@
-local cartesi_rolling_machine = require("rolling-machine")
-local encode_utils = require("encode-utils")
-local lester = require("lester")
+local cartesi_rolling_machine = require("cartesi-testlib.rolling-machine")
+local encode_utils = require("cartesi-testlib.encode-utils")
+local lester = require("cartesi-testlib.lester")
 local describe, it, expect = lester.describe, lester.it, lester.expect
 
 local ERC20_PORTAL_ADDRESS = "0x4340ac4FcdFC5eF8d34930C96BBac2Af1301DF40"
@@ -35,8 +35,8 @@ describe("honeypot", function()
             },
             payload = table.concat({
                 encode_utils.encode_be8(1),
-                encode_utils.encode_be160(ERC20_CONTRACT_ADDRESS),
-                encode_utils.encode_be160(ERC20_ALICE_ADDRESS),
+                encode_utils.encode_erc20_address(ERC20_CONTRACT_ADDRESS),
+                encode_utils.encode_erc20_address(ERC20_ALICE_ADDRESS),
             }),
         }, true)
         expect.equal(res.status, "rejected")
@@ -212,7 +212,8 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local RX_BUFFER_HEADER_SIZE = 64
         local ERC20_DEPOSIT_MSG_SIZE = 1 + 20*2 + 32
-        local max_data_size = rolling_machine.config.rollup.rx_buffer.length - ERC20_DEPOSIT_MSG_SIZE - RX_BUFFER_HEADER_SIZE
+        local max_data_size =
+            rolling_machine.config.rollup.rx_buffer.length - ERC20_DEPOSIT_MSG_SIZE - RX_BUFFER_HEADER_SIZE
         local res = rolling_machine:advance_state({
             metadata = {
                 msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),

@@ -1,6 +1,6 @@
-local cartesi_rolling_machine = require("rolling-machine")
-local encode_utils = require("encode-utils")
-local lester = require("lester")
+local cartesi_rolling_machine = require("cartesi-testlib.rolling-machine")
+local encode_utils = require("cartesi-testlib.encode-utils")
+local lester = require("cartesi-testlib.lester")
 local describe, it, expect = lester.describe, lester.it, lester.expect
 
 local ERC20_PORTAL_ADDRESS = "0x4340ac4FcdFC5eF8d34930C96BBac2Af1301DF40"

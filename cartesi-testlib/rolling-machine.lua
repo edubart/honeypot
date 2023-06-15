@@ -4,7 +4,7 @@ local unistd = require("posix.unistd")
 local sys_wait = require("posix.sys.wait")
 local sys_socket = require("posix.sys.socket")
 local time = require("posix.time")
-local encode_utils = require("encode-utils")
+local encode_utils = require("cartesi-testlib.encode-utils")
 
 local CARTESI_ROLLUP_ADVANCE_STATE = 0
 local CARTESI_ROLLUP_INSPECT_STATE = 1
