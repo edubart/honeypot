@@ -1,6 +1,6 @@
 CXX := g++
 CXXFLAGS := \
-	-std=c++20 \
+	-std=c++17 \
 	-O1 \
 	-g \
 	-fno-exceptions \
