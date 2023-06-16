@@ -9,9 +9,10 @@ CXXFLAGS := \
 	-fstack-protector-strong \
 	-fstack-clash-protection \
 	-D_FORTIFY_SOURCE=2 \
+	-D_GLIBCXX_ASSERTIONS \
 	-Wall \
 	-Wextra \
-	-Wpedantic \
+	-Werror \
 	-Wformat -Werror=format-security
 INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed

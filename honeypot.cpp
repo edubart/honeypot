@@ -48,13 +48,15 @@ static bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
 ////////////////////////////////////////////////////////////////////////////////
 // Rollup utilities.
 
+static_assert(sizeof(erc20_address) == CARTESI_ROLLUP_ADDRESS_SIZE);
+
 struct rollup_advance_input_metadata {
     erc20_address sender;
     uint64_t block_number;
     uint64_t timestamp;
     uint64_t epoch_index;
     uint64_t input_index;
-};
+} __attribute__((packed));
 
 // Write a report POD into rollup device.
 template <typename T>
@@ -138,8 +140,9 @@ static bool rollup_process_next_request(int rollup_fd, bool accept_previous_requ
 }
 
 template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE>
-static int rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+static bool rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
     // Open rollup device.
+    // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
     const int rollup_fd = open("/dev/rollup", O_RDWR);
     if (rollup_fd < 0) {
         // This operation may fail only for machines where the rollup device is not configured correctly.
@@ -151,11 +154,6 @@ static int rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspe
     // Request loop, should loop forever.
     while (true) {
         accept_previous_request = rollup_process_next_request<ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, accept_previous_request, advance_cb, inspect_cb);
-    }
-    // The following code is unreachable, just here for sanity.
-    if (close(rollup_fd) < 0) {
-        (void) fprintf(stderr, "[dapp] unable to close rollup device: %s\n", std::strerror(errno));
-        return false;
     }
     return true;
 }
@@ -174,14 +172,14 @@ struct erc20_deposit_payload {
     erc20_address contract_address;
     erc20_address sender_address;
     be256 amount;
-};
+} __attribute__((packed));
 
 // Payload encoding for ERC-20 transfers.
 struct erc20_transfer_payload {
     std::array<uint8_t, 16> bytecode;
     erc20_address destination;
     be256 amount;
-};
+} __attribute__((packed));
 
 // Encodes a ERC-20 transfer of amount to destination address.
 static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, be256 amount) {
@@ -214,25 +212,29 @@ enum honeypot_advance_status : uint8_t {
 // POD for advance inputs.
 struct honeypot_advance_input {
     erc20_deposit_payload deposit;
-};
+} __attribute__((packed));
 
 // POD for inspect inputs.
 struct honeypot_inspect_input {
-    uint8_t dummy; // Unused, just here because C++ cannot have empty structs.
-};
+    uint8_t dummy; // Unused, here just to be explicit, because empty structures in C++ always have one byte.
+} __attribute__((packed));
 
 // POD for advance reports.
 struct honeypot_advance_report {
     honeypot_advance_status status;
-};
+} __attribute__((packed));
 
 // POD for inspect reports.
 struct honeypot_inspect_report {
     be256 balance;
-};
+} __attribute__((packed));
 
-// State of the honeypot dapp.
-static be256 honeypot_balance{};
+// POD for dapp state.
+struct honeypot_dapp_state {
+    be256 balance;
+} __attribute__((packed));
+
+static honeypot_dapp_state dapp_state;
 
 // Process a ERC-20 deposit request.
 static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit) {
@@ -249,7 +251,7 @@ static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit
         return false;
     }
     // Add deposit amount to balance.
-    if (!be256_checked_add(honeypot_balance, honeypot_balance, deposit.amount)) {
+    if (!be256_checked_add(dapp_state.balance, dapp_state.balance, deposit.amount)) {
         (void) fprintf(stderr, "[dapp] deposit balance overflow\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW});
         return false;
@@ -263,20 +265,20 @@ static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit
 // Process a ERC-20 withdraw request.
 static bool honeypot_withdraw(int rollup_fd) {
     // Report an error if the balance is empty.
-    if (honeypot_balance == be256{}) {
+    if (dapp_state.balance == be256{}) {
         (void) fprintf(stderr, "[dapp] no funds to withdraw\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_NO_FUNDS});
         return false;
     }
     // Issue a voucher with the entire balance.
-    erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, honeypot_balance);
+    erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, dapp_state.balance);
     if (!rollup_write_voucher(rollup_fd, ERC20_CONTRACT_ADDRESS, transfer_payload)) {
         (void) fprintf(stderr, "[dapp] unable to issue withdraw voucher\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED});
         return false;
     }
     // Set balance to 0.
-    honeypot_balance = be256{};
+    dapp_state.balance = be256{};
     // Report that operation succeed.
     (void) fprintf(stderr, "[dapp] successful withdrawal\n");
     (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
@@ -286,7 +288,7 @@ static bool honeypot_withdraw(int rollup_fd) {
 // Process a inspect balance request.
 static bool honeypot_inspect_balance(int rollup_fd) {
     (void) fprintf(stderr, "[dapp] inspect balance request\n");
-    return rollup_write_report(rollup_fd, honeypot_inspect_report{honeypot_balance});
+    return rollup_write_report(rollup_fd, honeypot_inspect_report{dapp_state.balance});
 }
 
 // Process advance state requests.
