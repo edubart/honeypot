@@ -19,7 +19,6 @@
 
 extern "C" {
 #include <fcntl.h>     // open
-#include <unistd.h>    // close
 #include <sys/ioctl.h> // ioctl
 #include <linux/cartesi/rollup.h>
 }
@@ -234,7 +233,7 @@ struct honeypot_dapp_state {
     be256 balance;
 } __attribute__((packed));
 
-static honeypot_dapp_state dapp_state;
+static honeypot_dapp_state dapp_state{};
 
 // Process a ERC-20 deposit request.
 static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit) {

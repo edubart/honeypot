@@ -7,7 +7,6 @@ CXXFLAGS := \
 	-fno-strict-aliasing \
 	-fno-strict-overflow \
 	-fstack-protector-strong \
-	-fstack-clash-protection \
 	-D_FORTIFY_SOURCE=2 \
 	-D_GLIBCXX_ASSERTIONS \
 	-Wall \
@@ -17,14 +16,38 @@ CXXFLAGS := \
 INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed
 
-.PHONY: clean
+.PHONY: lint test clean
 
-dapp: honeypot.cpp
-	$(CXX) $(CXXFLAGS) $(CXXWARNFLAGS) $(INCS) $(LDFLAGS) -o $@ $^
+honeypot: honeypot.cpp
+	$(CXX) $(CXXFLAGS) $(INCS) $(LDFLAGS) -o $@ $^
 
-analyze: honeypot.cpp
+rootfs.tar: Dockerfile honeypot.cpp
+	docker buildx build --progress plain --output type=tar,dest=$@ .
+
+rootfs.ext2: rootfs.tar
+	genext2fs \
+		--tarball $< \
+		--block-size 4096 \
+		--faketime \
+		--readjustment +4096 \
+		$@
+
+snapshot: rootfs.ext2
+	cartesi-machine \
+        --assert-rolling-template \
+        --ram-length=128Mi\
+        --rollup \
+		--flash-drive=label:root,filename:$< \
+		--final-hash \
+        --store=$@ \
+        -- /home/dapp/honeypot
+
+lint: honeypot.cpp
 	clang-tidy honeypot.cpp -- $(CXXFLAGS) $(INCS)
-	$(CXX) $(CXXFLAGS) $(INCS) -fanalyzer $^
+
+test: snapshot
+	lua5.4 honeypot-usual-tests.lua
+	lua5.4 honeypot-edge-tests.lua
 
 clean:
-	@rm -rf dapp
+	rm -rf snapshot rootfs.ext2 rootfs.tar honeypot

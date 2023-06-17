@@ -1,17 +1,11 @@
 ## Instructions
 
-To run the tests first install sunodo, then:
+To run the tests:
 
 ```shell
-# install sunodo
-npm install -g @sunodo/cli
+# build the dapp snapshot
+make snapshot
 
-# build the dapp
-sunodo build
-
-# run usual tests
-lua5.4 honeypot-usual-tests.lua
-
-# run edge tests
-lua5.4 honeypot-edge-tests.lua
+# run tests
+make test
 ```

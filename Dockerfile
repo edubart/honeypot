@@ -3,14 +3,15 @@ FROM --platform=linux/riscv64 riscv64/ubuntu:22.04 as builder
 
 RUN <<EOF
 apt-get update
-apt-get install -y --no-install-recommends autoconf automake ca-certificates curl build-essential libtool wget 
-apt-get install -y --no-install-recommends libboost-dev
+apt-get install -y --no-install-recommends build-essential
+apt-get install -y --no-install-recommends clang-tidy
 rm -rf /var/lib/apt/lists/*
 EOF
 
 COPY --from=sunodo/sdk:0.1.0 /opt/riscv /opt/riscv
-WORKDIR /opt/cartesi/dapp
+WORKDIR /home/dapp
 COPY . .
+RUN make lint
 RUN make
 
 FROM --platform=linux/riscv64 riscv64/ubuntu:22.04
@@ -27,7 +28,7 @@ EOF
 COPY --from=sunodo/machine-emulator-tools:0.11.0-ubuntu22.04 / /
 ENV PATH="/opt/cartesi/bin:${PATH}"
 
-WORKDIR /opt/cartesi/dapp
-COPY --from=builder /opt/cartesi/dapp/dapp .
+WORKDIR /home/dapp
+COPY --from=builder /home/dapp/honeypot .
 
-ENTRYPOINT ["/opt/cartesi/dapp/dapp"]
+ENTRYPOINT ["/home/dapp/honeypot"]
