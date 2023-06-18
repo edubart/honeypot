@@ -31,6 +31,7 @@ using be256 = std::array<uint8_t, 32>;
 
 // Adds `a` and `b` and store in `res`.
 // Returns true when there is no arithmetic overflow, false otherwise.
+[[nodiscard]]
 static bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
     uint16_t carry = 0;
     for (uint32_t i = 0; i < static_cast<uint32_t>(res.size()); ++i) {
@@ -58,25 +59,25 @@ struct rollup_advance_input_metadata {
 } __attribute__((packed));
 
 // Write a report POD into rollup device.
-template <typename T>
+template <typename T> [[nodiscard]]
 static bool rollup_write_report(int rollup_fd, const T &payload) {
     rollup_report report{};
     report.payload = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(&payload)), sizeof(payload)};
     if (ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_REPORT, &report) < 0) {
-        (void) fprintf(stderr, "[dapp] unable to write rollup report: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to write rollup report: %s\n", strerror(errno));
         return false;
     }
     return true;
 }
 
 // Write a voucher POD into rollup device.
-template <typename T>
+template <typename T> [[nodiscard]]
 static bool rollup_write_voucher(int rollup_fd, const erc20_address &destination, const T &payload) {
     rollup_voucher voucher{};
     std::copy(destination.begin(), destination.end(), voucher.destination);
     voucher.payload = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(&payload)), sizeof(payload)};
     if (ioctl(rollup_fd, IOCTL_ROLLUP_WRITE_VOUCHER, &voucher) < 0) {
-        (void) fprintf(stderr, "[dapp] unable to write rollup voucher: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to write rollup voucher: %s\n", strerror(errno));
         return false;
     }
     return true;
@@ -84,13 +85,13 @@ static bool rollup_write_voucher(int rollup_fd, const erc20_address &destination
 
 // Finish last rollup request, wait for next rollup request and process it.
 // For every new request, reads an input POD and call backs its respective advance or inspect state handler.
-template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE>
+template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
 static bool rollup_process_next_request(int rollup_fd, bool accept_previous_request, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
     // Finish previous request and wait for the next request.
     rollup_finish finish_request{};
     finish_request.accept_previous_request = accept_previous_request;
     if (ioctl(rollup_fd, IOCTL_ROLLUP_FINISH, &finish_request) < 0) {
-        (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_FINISH: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_FINISH: %s\n", strerror(errno));
         return false;
     }
     const uint64_t input_data_length = static_cast<uint64_t>(finish_request.next_request_payload_length);
@@ -105,7 +106,7 @@ static bool rollup_process_next_request(int rollup_fd, bool accept_previous_requ
         rollup_advance_state request{};
         request.payload = {reinterpret_cast<uint8_t *>(&input_data), sizeof(input_data)};
         if (ioctl(rollup_fd, IOCTL_ROLLUP_READ_ADVANCE_STATE, &request) < 0) {
-            (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_ADVANCE_STATE: %s\n", std::strerror(errno));
+            (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_ADVANCE_STATE: %s\n", strerror(errno));
             return false;
         }
         rollup_advance_input_metadata input_metadata{{},
@@ -127,7 +128,7 @@ static bool rollup_process_next_request(int rollup_fd, bool accept_previous_requ
         rollup_inspect_state request{};
         request.payload = {reinterpret_cast<uint8_t *>(&input_data), sizeof(input_data)};
         if (ioctl(rollup_fd, IOCTL_ROLLUP_READ_INSPECT_STATE, &request) < 0) {
-            (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_INSPECT_STATE: %s\n", std::strerror(errno));
+            (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_INSPECT_STATE: %s\n", strerror(errno));
             return false;
         }
         // Call inspect state handler.
@@ -138,14 +139,14 @@ static bool rollup_process_next_request(int rollup_fd, bool accept_previous_requ
     }
 }
 
-template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE>
+template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
 static bool rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
     // Open rollup device.
     // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
     const int rollup_fd = open("/dev/rollup", O_RDWR);
     if (rollup_fd < 0) {
         // This operation may fail only for machines where the rollup device is not configured correctly.
-        (void) fprintf(stderr, "[dapp] unable to open rollup device: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to open rollup device: %s\n", strerror(errno));
         return false;
     }
     // Rollup device requires that we initialize the first previous request as accepted.
@@ -154,7 +155,7 @@ static bool rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&insp
     while (true) {
         accept_previous_request = rollup_process_next_request<ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, accept_previous_request, advance_cb, inspect_cb);
     }
-    return true;
+    // Unreachable code, return is omitted.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
