@@ -21,7 +21,8 @@ MACHINE_FLAGS := \
 	--assert-rolling-template \
     --ram-length=128Mi\
     --rollup \
-	--flash-drive=label:root,filename:rootfs.ext2
+	--flash-drive=label:root,filename:rootfs.ext2 \
+	--flash-drive=label:honeypot_dapp_state,length:4096
 
 .PHONY: lint test clean
 

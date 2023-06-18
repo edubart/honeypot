@@ -20,6 +20,8 @@
 extern "C" {
 #include <fcntl.h>     // open
 #include <sys/ioctl.h> // ioctl
+#include <sys/mman.h>  // mmap/msync
+#include <unistd.h>    // close/lseek
 #include <linux/cartesi/rollup.h>
 }
 
@@ -57,6 +59,18 @@ struct rollup_advance_input_metadata {
     uint64_t epoch_index;
     uint64_t input_index;
 } __attribute__((packed));
+
+// Throw an exception message into rollup device.
+[[maybe_unused]]
+static bool rollup_throw_exception_message(int rollup_fd, const char *message) {
+    rollup_exception exception{};
+    exception.payload = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(message)), strlen(message)};
+    if (ioctl(rollup_fd, IOCTL_ROLLUP_THROW_EXCEPTION, &exception) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to throw rollup exception: %s\n", strerror(errno));
+        return false;
+    }
+    return true;
+}
 
 // Write a report POD into rollup device.
 template <typename T> [[nodiscard]]
@@ -139,6 +153,7 @@ static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept
     }
 }
 
+// Open rollup device and return its file descriptor.
 [[nodiscard]]
 static int rollup_open() {
     // Open rollup device.
@@ -151,6 +166,7 @@ static int rollup_open() {
     return rollup_fd;
 }
 
+// Process rollup requests forever.
 template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[noreturn]]
 static bool rollup_request_loop(int rollup_fd, STATE *state, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
     // Rollup device requires that we initialize the first previous request as accepted.
@@ -160,6 +176,55 @@ static bool rollup_request_loop(int rollup_fd, STATE *state, ADVANCE_STATE &&adv
         accept_previous_request = rollup_process_next_request<STATE, ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, state, accept_previous_request, advance_cb, inspect_cb);
     }
     // Unreachable code.
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// DApp state utilities.
+
+// Load dapp state from disk.
+template <typename STATE> [[nodiscard]]
+static STATE *rollup_load_state_from_disk(const char *block_device) {
+    // Open the dapp state block device.
+    // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
+    const int state_fd = open(block_device, O_RDWR);
+    if (state_fd < 0) {
+        (void) fprintf(stderr, "[dapp] unable to open state block device: %s\n", std::strerror(errno));
+        return nullptr;
+    }
+    // Check if the block device size is big enough.
+    const off_t size = lseek(state_fd, 0, SEEK_END);
+    if (size < 0) {
+        (void) fprintf(stderr, "[dapp] unable to seek state block device: %s\n", std::strerror(errno));
+        return nullptr;
+    }
+    if (static_cast<uint64_t>(size) < sizeof(STATE)) {
+        (void) fprintf(stderr, "[dapp] state block device size is too small\n");
+        return nullptr;
+    }
+    // Map the state block device to memory.
+    // Note that we call mmap() but never call munmap(), we intentionally let the OS automatically do this on exit.
+    void *mem = reinterpret_cast<STATE *>(mmap(nullptr, sizeof(STATE), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, state_fd, 0));
+    if (mem == MAP_FAILED) {
+        (void) fprintf(stderr, "[dapp] unable to map state block device to memory: %s\n", std::strerror(errno));
+        return nullptr;
+    }
+    // After the mmap() call, the file descriptor can be closed immediately without invalidating the mapping.
+    if (close(state_fd) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to close state block device: %s\n", std::strerror(errno));
+        return nullptr;
+    }
+    return reinterpret_cast<STATE *>(mem);
+}
+
+// Flush dapp state to disk.
+template <typename STATE> [[maybe_unused]]
+static bool rollup_flush_state_to_disk(STATE *state) {
+    // Flushes state changes made into memory using mmap(2) back to the filesystem.
+    if (msync(state, sizeof(STATE), MS_SYNC) < 0) {
+        (void) fprintf(stderr, "[dapp] unable to flush state from memory to disk: %s\n", std::strerror(errno));
+        return false;
+    }
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -202,6 +267,7 @@ static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, b
 static constexpr erc20_address ERC20_PORTAL_ADDRESS     = {{0x43, 0x40, 0xac, 0x4F, 0xcd, 0xFC, 0x5e, 0xF8, 0xd3, 0x49, 0x30, 0xC9, 0x6B, 0xBa, 0xc2, 0xAf, 0x13, 0x01, 0xDF, 0x40}};
 static constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {{0x70, 0x99, 0x79, 0x70, 0xC5, 0x18, 0x12, 0xdc, 0x3A, 0x01, 0x0C, 0x7d, 0x01, 0xb5, 0x0e, 0x0d, 0x17, 0xdc, 0x79, 0xC8}};
 static constexpr erc20_address ERC20_CONTRACT_ADDRESS   = {{0xc6, 0xe7, 0xDF, 0x5E, 0x7b, 0x4f, 0x2A, 0x27, 0x89, 0x06, 0x86, 0x2b, 0x61, 0x20, 0x58, 0x50, 0x34, 0x4D, 0x4e, 0x7d}};
+static constexpr const char *HONEYPOT_STATE_BLOCK_DEVICE = "/dev/mtdblock1";
 
 // Status code sent in as reports for well formed advance requests.
 enum honeypot_advance_status : uint8_t {
@@ -258,6 +324,8 @@ static bool honeypot_deposit(int rollup_fd, honeypot_dapp_state *dapp_state, con
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW});
         return false;
     }
+    // Flush dapp state to disk, so we can inspect its state from outside.
+    rollup_flush_state_to_disk(dapp_state);
     // Report that operation succeed.
     (void) fprintf(stderr, "[dapp] successful deposit\n");
     (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
@@ -281,6 +349,8 @@ static bool honeypot_withdraw(int rollup_fd, honeypot_dapp_state *dapp_state) {
     }
     // Set balance to 0.
     dapp_state->balance = be256{};
+    // Flush dapp state to disk, so we can inspect its state from outside.
+    rollup_flush_state_to_disk(dapp_state);
     // Report that operation succeed.
     (void) fprintf(stderr, "[dapp] successful withdrawal\n");
     (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
@@ -324,9 +394,13 @@ int main() {
     if (rollup_fd < 0) {
         return -1;
     }
-    // Initialize dapp state.
-    honeypot_dapp_state dapp_state{};
+    // Load dapp state from disk.
+    honeypot_dapp_state *dapp_state = rollup_load_state_from_disk<honeypot_dapp_state>(HONEYPOT_STATE_BLOCK_DEVICE);
+    if (!dapp_state) {
+        (void) rollup_throw_exception_message(rollup_fd, "unable to load dapp state");
+        return -1;
+    }
     // Process requests forever.
-    rollup_request_loop<honeypot_dapp_state, honeypot_advance_input, honeypot_inspect_input>(rollup_fd, &dapp_state, honeypot_advance_state, honeypot_inspect_state);
+    rollup_request_loop<honeypot_dapp_state, honeypot_advance_input, honeypot_inspect_input>(rollup_fd, dapp_state, honeypot_advance_state, honeypot_inspect_state);
     // Unreachable code, return is intentionally omitted.
 }
