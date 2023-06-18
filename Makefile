@@ -16,6 +16,13 @@ CXXFLAGS := \
 INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed
 
+MACHINE_ENTRYPOINT := /home/dapp/honeypot
+MACHINE_FLAGS := \
+	--assert-rolling-template \
+    --ram-length=128Mi\
+    --rollup \
+	--flash-drive=label:root,filename:rootfs.ext2
+
 .PHONY: lint test clean
 
 honeypot: honeypot.cpp
@@ -33,14 +40,11 @@ rootfs.ext2: rootfs.tar
 		$@
 
 snapshot: rootfs.ext2
-	cartesi-machine \
-        --assert-rolling-template \
-        --ram-length=128Mi\
-        --rollup \
-		--flash-drive=label:root,filename:$< \
-		--final-hash \
-        --store=$@ \
-        -- /home/dapp/honeypot
+	rm -rf snapshot
+	cartesi-machine $(MACHINE_FLAGS) --final-hash --store=$@ -- $(MACHINE_ENTRYPOINT)
+
+shell: rootfs.ext2
+	cartesi-machine $(MACHINE_FLAGS) -i -- /bin/bash
 
 lint: honeypot.cpp
 	clang-tidy honeypot.cpp -- $(CXXFLAGS) $(INCS)

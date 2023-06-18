@@ -85,8 +85,8 @@ static bool rollup_write_voucher(int rollup_fd, const erc20_address &destination
 
 // Finish last rollup request, wait for next rollup request and process it.
 // For every new request, reads an input POD and call backs its respective advance or inspect state handler.
-template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
-static bool rollup_process_next_request(int rollup_fd, bool accept_previous_request, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
+static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept_previous_request, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
     // Finish previous request and wait for the next request.
     rollup_finish finish_request{};
     finish_request.accept_previous_request = accept_previous_request;
@@ -116,7 +116,7 @@ static bool rollup_process_next_request(int rollup_fd, bool accept_previous_requ
             request.metadata.input_index};
         std::copy(std::begin(request.metadata.msg_sender), std::end(request.metadata.msg_sender), input_metadata.sender.begin());
         // Call advance state handler.
-        return advance_cb(rollup_fd, input_metadata, input_data, input_data_length);
+        return advance_cb(rollup_fd, state, input_metadata, input_data, input_data_length);
     } else if (finish_request.next_request_type == CARTESI_ROLLUP_INSPECT_STATE) { // Inspect state.
         // Check if input payload length is supported.
         if (input_data_length > sizeof(INSPECT_INPUT)) {
@@ -132,30 +132,34 @@ static bool rollup_process_next_request(int rollup_fd, bool accept_previous_requ
             return false;
         }
         // Call inspect state handler.
-        return inspect_cb(rollup_fd, input_data, input_data_length);
+        return inspect_cb(rollup_fd, state, input_data, input_data_length);
     } else {
         (void) fprintf(stderr, "[dapp] invalid request type\n");
         return false;
     }
 }
 
-template <typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
-static bool rollup_request_loop(ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+[[nodiscard]]
+static int rollup_open() {
     // Open rollup device.
-    // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
     const int rollup_fd = open("/dev/rollup", O_RDWR);
     if (rollup_fd < 0) {
         // This operation may fail only for machines where the rollup device is not configured correctly.
         (void) fprintf(stderr, "[dapp] unable to open rollup device: %s\n", strerror(errno));
-        return false;
+        return -1;
     }
+    return rollup_fd;
+}
+
+template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[noreturn]]
+static bool rollup_request_loop(int rollup_fd, STATE *state, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
     // Rollup device requires that we initialize the first previous request as accepted.
     bool accept_previous_request = true;
     // Request loop, should loop forever.
     while (true) {
-        accept_previous_request = rollup_process_next_request<ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, accept_previous_request, advance_cb, inspect_cb);
+        accept_previous_request = rollup_process_next_request<STATE, ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, state, accept_previous_request, advance_cb, inspect_cb);
     }
-    // Unreachable code, return is omitted.
+    // Unreachable code.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -234,10 +238,8 @@ struct honeypot_dapp_state {
     be256 balance;
 } __attribute__((packed));
 
-static honeypot_dapp_state dapp_state{};
-
 // Process a ERC-20 deposit request.
-static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit) {
+static bool honeypot_deposit(int rollup_fd, honeypot_dapp_state *dapp_state, const erc20_deposit_payload &deposit) {
     // Consider only successful ERC-20 deposits.
     if (deposit.status != ERC20_DEPOSIT_SUCCESSFUL) {
         (void) fprintf(stderr, "[dapp] deposit erc20 transfer failed\n");
@@ -251,7 +253,7 @@ static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit
         return false;
     }
     // Add deposit amount to balance.
-    if (!be256_checked_add(dapp_state.balance, dapp_state.balance, deposit.amount)) {
+    if (!be256_checked_add(dapp_state->balance, dapp_state->balance, deposit.amount)) {
         (void) fprintf(stderr, "[dapp] deposit balance overflow\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW});
         return false;
@@ -263,22 +265,22 @@ static bool honeypot_deposit(int rollup_fd, const erc20_deposit_payload &deposit
 }
 
 // Process a ERC-20 withdraw request.
-static bool honeypot_withdraw(int rollup_fd) {
+static bool honeypot_withdraw(int rollup_fd, honeypot_dapp_state *dapp_state) {
     // Report an error if the balance is empty.
-    if (dapp_state.balance == be256{}) {
+    if (dapp_state->balance == be256{}) {
         (void) fprintf(stderr, "[dapp] no funds to withdraw\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_NO_FUNDS});
         return false;
     }
     // Issue a voucher with the entire balance.
-    erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, dapp_state.balance);
+    erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, dapp_state->balance);
     if (!rollup_write_voucher(rollup_fd, ERC20_CONTRACT_ADDRESS, transfer_payload)) {
         (void) fprintf(stderr, "[dapp] unable to issue withdraw voucher\n");
         (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED});
         return false;
     }
     // Set balance to 0.
-    dapp_state.balance = be256{};
+    dapp_state->balance = be256{};
     // Report that operation succeed.
     (void) fprintf(stderr, "[dapp] successful withdrawal\n");
     (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
@@ -286,17 +288,17 @@ static bool honeypot_withdraw(int rollup_fd) {
 }
 
 // Process a inspect balance request.
-static bool honeypot_inspect_balance(int rollup_fd) {
+static bool honeypot_inspect_balance(int rollup_fd, honeypot_dapp_state *dapp_state) {
     (void) fprintf(stderr, "[dapp] inspect balance request\n");
-    return rollup_write_report(rollup_fd, honeypot_inspect_report{dapp_state.balance});
+    return rollup_write_report(rollup_fd, honeypot_inspect_report{dapp_state->balance});
 }
 
 // Process advance state requests.
-static bool honeypot_advance_state(int rollup_fd, const rollup_advance_input_metadata &input_metadata, const honeypot_advance_input &input, uint64_t input_length) {
+static bool honeypot_advance_state(int rollup_fd, honeypot_dapp_state *dapp_state, const rollup_advance_input_metadata &input_metadata, const honeypot_advance_input &input, uint64_t input_length) {
     if (input_metadata.sender == ERC20_PORTAL_ADDRESS && input_length == sizeof(erc20_deposit_payload)) { // Deposit
-        return honeypot_deposit(rollup_fd, input.deposit);
+        return honeypot_deposit(rollup_fd, dapp_state, input.deposit);
     } else if (input_metadata.sender == ERC20_WITHDRAWAL_ADDRESS && input_length == 0) { // Withdraw
-        return honeypot_withdraw(rollup_fd);
+        return honeypot_withdraw(rollup_fd, dapp_state);
     } else { // Invalid request
         (void) fprintf(stderr, "[dapp] invalid advance state request\n");
         return false;
@@ -304,10 +306,10 @@ static bool honeypot_advance_state(int rollup_fd, const rollup_advance_input_met
 }
 
 // Process inspect state requests.
-static bool honeypot_inspect_state(int rollup_fd, const honeypot_inspect_input &input, uint64_t input_length) {
+static bool honeypot_inspect_state(int rollup_fd, honeypot_dapp_state *dapp_state, const honeypot_inspect_input &input, uint64_t input_length) {
     (void) input;
     if (input_length == 0) { // Inspect balance.
-        return honeypot_inspect_balance(rollup_fd);
+        return honeypot_inspect_balance(rollup_fd, dapp_state);
     } else { // Invalid request.
         (void) fprintf(stderr, "[dapp] invalid inspect state request\n");
         return false;
@@ -316,6 +318,15 @@ static bool honeypot_inspect_state(int rollup_fd, const honeypot_inspect_input &
 
 // Application main.
 int main() {
+    // Open rollup device.
+    // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
+    const int rollup_fd = rollup_open();
+    if (rollup_fd < 0) {
+        return -1;
+    }
+    // Initialize dapp state.
+    honeypot_dapp_state dapp_state{};
     // Process requests forever.
-    return rollup_request_loop<honeypot_advance_input, honeypot_inspect_input>(honeypot_advance_state, honeypot_inspect_state) ? 0 : -1;
+    rollup_request_loop<honeypot_dapp_state, honeypot_advance_input, honeypot_inspect_input>(rollup_fd, &dapp_state, honeypot_advance_state, honeypot_inspect_state);
+    // Unreachable code, return is intentionally omitted.
 }
