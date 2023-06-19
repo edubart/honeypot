@@ -61,7 +61,7 @@ setmetatable(rolling_machine, {
         local remote_pid, remote, machine = spawn_remote_cartesi_machine(dir, port)
         local config = machine:get_initial_config()
         return setmetatable({
-            default_msg_sender = string.rep("\x00", 32),
+            default_msg_sender = string.rep("\x00", 20),
             epoch_number = 0,
             input_number = 0,
             block_number = 0,
@@ -114,7 +114,8 @@ function rolling_machine:write_input_metadata(input_metadata)
     self.machine:write_memory(
         self.config.rollup.input_metadata.start,
         table.concat({
-            input_metadata.msg_sender,
+            string.rep('\x00', 12), -- padding
+            encode_utils.encode_erc20_address(input_metadata.msg_sender),
             encode_utils.encode_be256(input_metadata.block_number),
             encode_utils.encode_be256(input_metadata.timestamp),
             encode_utils.encode_be256(input_metadata.epoch_number),

@@ -17,7 +17,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = "",
         }, true)
@@ -31,7 +31,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = table.concat({
                 encode_utils.encode_be8(1),
@@ -49,7 +49,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -66,7 +66,7 @@ describe("honeypot", function()
 
         res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -86,7 +86,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
                 input_number = '0x10000000000000000'
             },
             payload = encode_utils.encode_erc20_deposit({
@@ -106,7 +106,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
                 block_number = '0x10000000000000000'
             },
             payload = encode_utils.encode_erc20_deposit({
@@ -126,7 +126,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
                 epoch_number = '0x10000000000000000'
             },
             payload = encode_utils.encode_erc20_deposit({
@@ -146,7 +146,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
                 timestamp = '0x10000000000000000'
             },
             payload = encode_utils.encode_erc20_deposit({
@@ -166,7 +166,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = {
                 offset = 32,
@@ -189,7 +189,7 @@ describe("honeypot", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = {
                 offset = 32,
@@ -216,7 +216,7 @@ describe("honeypot", function()
             rolling_machine.config.rollup.rx_buffer.length - ERC20_DEPOSIT_MSG_SIZE - RX_BUFFER_HEADER_SIZE
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,

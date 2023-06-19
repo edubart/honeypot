@@ -14,7 +14,7 @@ local HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED = string.char(1)
 local HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT = string.char(2)
 local HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW = string.char(3)
 local HONEYPOT_STATUS_WITHDRAW_NO_FUNDS = string.char(4)
-local HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED = string.char(5)
+-- local HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED = string.char(5)
 
 describe("honeypot", function()
     local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR)
@@ -22,7 +22,7 @@ describe("honeypot", function()
     it("should accept first deposit", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -41,7 +41,7 @@ describe("honeypot", function()
     it("should accept second deposit", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -60,7 +60,7 @@ describe("honeypot", function()
     it("should reject deposit with transfer failed status", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = false,
@@ -79,7 +79,7 @@ describe("honeypot", function()
     it("should reject deposit with invalid contract address", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = false,
@@ -98,7 +98,7 @@ describe("honeypot", function()
     it("should reject deposit with invalid sender address", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_ALICE_ADDRESS),
+                msg_sender = ERC20_ALICE_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -116,7 +116,7 @@ describe("honeypot", function()
     it("should reject deposit with invalid payload length", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -135,7 +135,7 @@ describe("honeypot", function()
     it("should accept balance inspect", function()
         local res = rolling_machine:inspect_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_ALICE_ADDRESS),
+                msg_sender = ERC20_ALICE_ADDRESS,
             },
         })
         expect.equal(res.status, "accepted")
@@ -150,7 +150,7 @@ describe("honeypot", function()
     it("should reject withdraw with invalid payload length", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_WITHDRAW_ADDRESS),
+                msg_sender = ERC20_WITHDRAW_ADDRESS,
             },
             payload = '\x00'
         })
@@ -163,7 +163,7 @@ describe("honeypot", function()
     it("should accept withdraw when there is funds", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_WITHDRAW_ADDRESS),
+                msg_sender = ERC20_WITHDRAW_ADDRESS,
             },
         })
         expect.equal(res.status, "accepted")
@@ -183,7 +183,7 @@ describe("honeypot", function()
     it("should reject withdraw when there is no funds", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_WITHDRAW_ADDRESS),
+                msg_sender = ERC20_WITHDRAW_ADDRESS,
             },
         })
         expect.equal(res.status, "rejected")
@@ -196,7 +196,7 @@ describe("honeypot", function()
     it("should accept inspect when there is no funds", function()
         local res = rolling_machine:inspect_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_ALICE_ADDRESS),
+                msg_sender = ERC20_ALICE_ADDRESS,
             },
         })
         expect.equal(res.status, "accepted")
@@ -209,7 +209,7 @@ describe("honeypot", function()
     it("should reject deposit of an addition overflow", function()
         local res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
@@ -226,7 +226,7 @@ describe("honeypot", function()
 
         res = rolling_machine:advance_state({
             metadata = {
-                msg_sender = encode_utils.encode_be256(ERC20_PORTAL_ADDRESS),
+                msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
                 successful = true,
