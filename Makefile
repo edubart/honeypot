@@ -16,7 +16,7 @@ CXXFLAGS := \
 INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed
 
-MACHINE_ENTRYPOINT := /home/dapp/honeypot
+MACHINE_ENTRYPOINT := /home/dapp/honeypot-entrypoint.sh
 MACHINE_FLAGS := \
 	--assert-rolling-template \
     --ram-length=128Mi\

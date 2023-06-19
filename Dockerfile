@@ -30,5 +30,6 @@ ENV PATH="/opt/cartesi/bin:${PATH}"
 
 WORKDIR /home/dapp
 COPY --from=builder /home/dapp/honeypot .
+COPY --chmod=755 honeypot-entrypoint.sh .
 
 ENTRYPOINT ["/home/dapp/honeypot"]
