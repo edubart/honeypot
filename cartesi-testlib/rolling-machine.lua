@@ -1,7 +1,6 @@
 local jsonrpc = require("cartesi.jsonrpc")
 local cartesi = require("cartesi")
 local unistd = require("posix.unistd")
-local sys_wait = require("posix.sys.wait")
 local sys_socket = require("posix.sys.socket")
 local time = require("posix.time")
 local encode_utils = require("cartesi-testlib.encode-utils")
@@ -44,7 +43,7 @@ local function spawn_remote_cartesi_machine(dir, remote_port)
     if remote_pid == 0 then -- child
         assert(unistd.execp("jsonrpc-remote-cartesi-machine", {
             [0] = "jsonrpc-remote-cartesi-machine",
-            "--log-level=warning",
+            "--log-level=debug",
             remote_endpoint,
         }))
         unistd._exit(0)
@@ -52,13 +51,13 @@ local function spawn_remote_cartesi_machine(dir, remote_port)
         wait_remote_address(remote_addr, remote_port)
         local remote = assert(jsonrpc.stub(remote_endpoint))
         local machine = remote.machine(dir, {skip_root_hash_check=true, skip_version_check=true})
-        return remote_pid, remote, machine
+        return remote, machine
     end
 end
 
 setmetatable(rolling_machine, {
     __call = function(rolling_machine_mt, dir, port)
-        local remote_pid, remote, machine = spawn_remote_cartesi_machine(dir, port)
+        local remote, machine = spawn_remote_cartesi_machine(dir, port)
         local config = machine:get_initial_config()
         return setmetatable({
             default_msg_sender = string.rep("\x00", 20),
@@ -66,7 +65,6 @@ setmetatable(rolling_machine, {
             input_number = 0,
             block_number = 0,
             remote = remote,
-            remote_pid = remote_pid,
             machine = machine,
             config = config,
         }, rolling_machine_mt)
@@ -81,8 +79,20 @@ function rolling_machine:fork()
     end
     forked_self.remote = forked_remote
     forked_self.machine = forked_remote.get_machine()
-    forked_self.remote_pid = nil
     return setmetatable(forked_self, rolling_machine)
+end
+
+function rolling_machine:swap(forked)
+    local keys = {}
+    for k in pairs(self) do
+        keys[k] = true
+    end
+    for k in pairs(forked) do
+        keys[k] = true
+    end
+    for k in pairs(keys) do
+        self[k], forked[k] = forked[k], self[k]
+    end
 end
 
 function rolling_machine:destroy()
@@ -93,10 +103,6 @@ function rolling_machine:destroy()
     if self.remote then
         self.remote:shutdown()
         self.remote = nil
-    end
-    if self.remote_pid then
-        sys_wait.wait(self.remote_pid)
-        self.remote_pid = nil
     end
     setmetatable(self, nil)
 end
@@ -214,16 +220,7 @@ function rolling_machine:run_collecting_events()
     end
 end
 
-function rolling_machine:advance_state(input, no_rollback)
-    -- Check if we can perform an advance request
-    assert(
-        self:read_yield_reason() == cartesi.machine.HTIF_YIELD_REASON_RX_ACCEPTED,
-        "machine must be yielded with rx accepted to advance state"
-    )
-    -- Save machine state
-    if not no_rollback then
-        self.machine:snapshot()
-    end
+local function rolling_machine_advance_state(self, input)
     -- Write the input metadata and data
     self:write_input_metadata(input.metadata or {})
     self:write_input_payload(input.payload or "")
@@ -234,26 +231,34 @@ function rolling_machine:advance_state(input, no_rollback)
     -- Run the advance request
     local res = self:run_collecting_events()
     -- Restore machine state for rejected requests
-    if res.status == "rejected" then
-        if not no_rollback then
-            self.machine:rollback()
-        end
-    elseif res.status == "accepted" then
+    if res.status == "accepted" then
         self.input_number = self.input_number + 1
     end
     return res
 end
 
-function rolling_machine:inspect_state(input, no_rollback)
-    -- Check if we can perform an inspect request
+function rolling_machine:advance_state(input, no_rollback)
+    -- Check if we can perform an advance request
     assert(
         self:read_yield_reason() == cartesi.machine.HTIF_YIELD_REASON_RX_ACCEPTED,
-        "machine must be yielded with rx accepted to inspect state"
+        "machine must be yielded with rx accepted to advance state"
     )
-    -- Save machine state
-    if not no_rollback then
-        self.machine:snapshot()
+    if no_rollback then
+        return rolling_machine_advance_state(self, input)
+    else
+        -- Create machine state checkpoint
+        local checkpoint <close> = self:fork()
+        -- Advance state
+        local res = rolling_machine_advance_state(self, input)
+        if res.status ~= "accepted" then
+            -- Rollback machine state
+            self:swap(checkpoint)
+        end
+        return res
     end
+end
+
+local function rolling_machine_inspect_state(self, input)
     -- Write the input metadata and data
     self:write_input_metadata(input.metadata or {})
     self:write_input_payload(input.payload or "")
@@ -262,12 +267,21 @@ function rolling_machine:inspect_state(input, no_rollback)
     -- Reset the Y flag so machine can proceed
     self.machine:reset_iflags_Y()
     -- Run the inspect request
-    local res = self:run_collecting_events()
-    -- Restore machine state
-    if not no_rollback then
-        self.machine:rollback()
+    return self:run_collecting_events()
+end
+
+function rolling_machine:inspect_state(input, no_rollback)
+    if no_rollback then
+        return rolling_machine_inspect_state(self, input)
+    else
+        -- Create machine state checkpoint
+        local checkpoint <close> = self:fork()
+        -- Advance state
+        local res = rolling_machine_advance_state(self, input)
+        -- Rollback machine state
+        self:swap(checkpoint)
+        return res
     end
-    return res
 end
 
 return rolling_machine

@@ -28,7 +28,13 @@ function encode_utils.encode_be8(v) return encode_utils.encode_be(8, v) end
 
 function encode_utils.encode_be256(v, trim) return encode_utils.encode_be(256, v, trim) end
 
-function encode_utils.encode_erc20_address(v, trim) return encode_utils.encode_be(160, v, trim) end
+function encode_utils.encode_erc20_address(v)
+    if type(v) == 'string' and #v == 20 then
+        return v
+    else -- numeric or hexadecimal encoding
+        return encode_utils.encode_be(160, v)
+    end
+end
 
 function encode_utils.encode_erc20_deposit(deposit)
     return table.concat({
