@@ -9,6 +9,7 @@ local ERC20_PORTAL_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x4340ac
 local ERC20_CONTRACT_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0xc6e7DF5E7b4f2A278906862b61205850344D4e7d")
 local ERC20_WITHDRAW_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 local MACHINE_STORED_DIR = "snapshot"
+local REMOTE_RPC_PROTOCOL = arg[1] or "jsonrpc"
 
 local HONEYPOT_STATUS_SUCCESS = string.char(0)
 local HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED = string.char(1)
@@ -72,7 +73,7 @@ local function random_advance_state(rolling_machine)
         if not expected_accepted then
             return
         end
-        local no_rollback = false
+        local no_rollback = false--expected_accepted
         local res = rolling_machine:advance_state({
             metadata = {
                 msg_sender = msg_sender
@@ -92,14 +93,14 @@ local function random_advance_state(rolling_machine)
 end
 
 describe("honeypot", function()
-        local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR)
+    local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, REMOTE_RPC_PROTOCOL)
 
-        it("stress", function()
-            for _=1,100000 do
-                -- print(_)
-                random_advance_state(rolling_machine)
-            end
-        end)
+    it("stress", function()
+        for i=1,100000 do
+            print(i)
+            random_advance_state(rolling_machine)
+        end
+    end)
 end)
 
 --[[

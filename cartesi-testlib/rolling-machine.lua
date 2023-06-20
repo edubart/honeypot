@@ -1,4 +1,3 @@
-local jsonrpc = require("cartesi.jsonrpc")
 local cartesi = require("cartesi")
 local unistd = require("posix.unistd")
 local sys_socket = require("posix.sys.socket")
@@ -10,7 +9,7 @@ local CARTESI_ROLLUP_INSPECT_STATE = 1
 
 -- TODO: read hashes
 
-local next_remote_port = 9000
+local next_remote_port = 5000
 
 local rolling_machine = {}
 rolling_machine.__index = rolling_machine
@@ -32,47 +31,53 @@ local function wait_remote_address(remote_addr, remote_port)
     assert(ok, err)
 end
 
-local function spawn_remote_cartesi_machine(dir, remote_port)
+local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
     local remote_pid = assert(unistd.fork())
-    if not remote_port then
-        remote_port = next_remote_port
-        next_remote_port = next_remote_port + 1
-    end
+    local remote_rpc = remote_protocol == 'jsonrpc' and require("cartesi.jsonrpc") or require("cartesi.grpc")
+    local remote_bin = remote_protocol == 'jsonrpc' and "jsonrpc-remote-cartesi-machine" or "remote-cartesi-machine"
     local remote_addr = '127.0.0.1'
     local remote_endpoint = remote_addr..':'..remote_port
+    local remote_checkin_endpoint = remote_addr..':'..(remote_port+1)
     if remote_pid == 0 then -- child
-        assert(unistd.execp("jsonrpc-remote-cartesi-machine", {
-            [0] = "jsonrpc-remote-cartesi-machine",
+        assert(unistd.execp(remote_bin, {
+            [0] = remote_bin,
             "--log-level=debug",
-            remote_endpoint,
+            "--server-address="..remote_endpoint,
         }))
         unistd._exit(0)
     else -- parent
         wait_remote_address(remote_addr, remote_port)
-        local remote = assert(jsonrpc.stub(remote_endpoint))
+        local remote = assert(remote_rpc.stub(remote_endpoint, remote_checkin_endpoint))
         local machine = remote.machine(dir, {skip_root_hash_check=true, skip_version_check=true})
-        return remote, machine
+        return remote_rpc, remote, machine
     end
 end
 
 setmetatable(rolling_machine, {
-    __call = function(rolling_machine_mt, dir, port)
-        local remote, machine = spawn_remote_cartesi_machine(dir, port)
+    __call = function(rolling_machine_mt, dir, remote_protocol, remote_port)
+        if not remote_port then
+            remote_port = next_remote_port
+            next_remote_port = next_remote_port + 2
+        end
+        remote_protocol = remote_protocol or 'jsonrpc'
+        local remote_rpc, remote, machine = spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
         local config = machine:get_initial_config()
         return setmetatable({
             default_msg_sender = string.rep("\x00", 20),
             epoch_number = 0,
             input_number = 0,
             block_number = 0,
+            remote_rpc = remote_rpc,
             remote = remote,
             machine = machine,
             config = config,
+            remote_protocol = remote_protocol,
         }, rolling_machine_mt)
     end,
 })
 
 function rolling_machine:fork()
-    local forked_remote = assert(jsonrpc.stub(self.remote.fork()))
+    local forked_remote = assert(self.remote_rpc.stub(self.remote.fork()))
     local forked_self = {}
     for k,v in pairs(self) do
         forked_self[k] = v
@@ -246,15 +251,27 @@ function rolling_machine:advance_state(input, no_rollback)
     if no_rollback then
         return rolling_machine_advance_state(self, input)
     else
-        -- Create machine state checkpoint
-        local checkpoint <close> = self:fork()
-        -- Advance state
-        local res = rolling_machine_advance_state(self, input)
-        if res.status ~= "accepted" then
-            -- Rollback machine state
-            self:swap(checkpoint)
+        if self.remote_protocol == 'jsonrpc' then
+            -- Create machine state checkpoint
+            local checkpoint <close> = self:fork()
+            -- Advance state
+            local res = rolling_machine_advance_state(self, input)
+            if res.status == "rejected" then
+                -- Rollback machine state
+                self:swap(checkpoint)
+            end
+            return res
+        else -- grpc
+            -- Create machine state checkpoint
+            self.machine:snapshot()
+            -- Advance state
+            local res = rolling_machine_advance_state(self, input)
+            if res.status == "rejected" then
+                -- Rollback machine state
+                self.machine:rollback()
+            end
+            return res
         end
-        return res
     end
 end
 
@@ -274,13 +291,23 @@ function rolling_machine:inspect_state(input, no_rollback)
     if no_rollback then
         return rolling_machine_inspect_state(self, input)
     else
-        -- Create machine state checkpoint
-        local checkpoint <close> = self:fork()
-        -- Advance state
-        local res = rolling_machine_advance_state(self, input)
-        -- Rollback machine state
-        self:swap(checkpoint)
-        return res
+        if self.remote_protocol == 'jsonrpc' then
+            -- Create machine state checkpoint
+            local checkpoint <close> = self:fork()
+            -- Inspect state
+            local res = rolling_machine_inspect_state(self, input)
+            -- Rollback machine state
+            self:swap(checkpoint)
+            return res
+        else -- grpc
+            -- Create machine state checkpoint
+            self.machine:snapshot()
+            -- Inspect state
+            local res = rolling_machine_inspect_state(self, input)
+            -- Rollback machine state
+            self.machine:rollback()
+            return res
+        end
     end
 end
 
