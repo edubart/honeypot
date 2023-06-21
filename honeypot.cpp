@@ -264,10 +264,10 @@ static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, b
 ////////////////////////////////////////////////////////////////////////////////
 // Honeypot application.
 
-static constexpr erc20_address ERC20_PORTAL_ADDRESS     = {{0x43, 0x40, 0xac, 0x4F, 0xcd, 0xFC, 0x5e, 0xF8, 0xd3, 0x49, 0x30, 0xC9, 0x6B, 0xBa, 0xc2, 0xAf, 0x13, 0x01, 0xDF, 0x40}};
-static constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {{0x70, 0x99, 0x79, 0x70, 0xC5, 0x18, 0x12, 0xdc, 0x3A, 0x01, 0x0C, 0x7d, 0x01, 0xb5, 0x0e, 0x0d, 0x17, 0xdc, 0x79, 0xC8}};
-static constexpr erc20_address ERC20_CONTRACT_ADDRESS   = {{0xc6, 0xe7, 0xDF, 0x5E, 0x7b, 0x4f, 0x2A, 0x27, 0x89, 0x06, 0x86, 0x2b, 0x61, 0x20, 0x58, 0x50, 0x34, 0x4D, 0x4e, 0x7d}};
-static constexpr const char *HONEYPOT_STATE_BLOCK_DEVICE = "/dev/mtdblock1";
+static constexpr erc20_address ERC20_PORTAL_ADDRESS     = {CONFIG_ERC20_PORTAL_ADDRESS};
+static constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {CONFIG_ERC20_WITHDRAWAL_ADDRESS};
+static constexpr erc20_address ERC20_CONTRACT_ADDRESS   = {CONFIG_ERC20_CONTRACT_ADDRESS};
+static constexpr const char *STATE_BLOCK_DEVICE         = CONFIG_STATE_BLOCK_DEVICE;
 
 // Status code sent in as reports for well formed advance requests.
 enum honeypot_advance_status : uint8_t {
@@ -395,7 +395,7 @@ int main() {
         return -1;
     }
     // Load dapp state from disk.
-    honeypot_dapp_state *dapp_state = rollup_load_state_from_disk<honeypot_dapp_state>(HONEYPOT_STATE_BLOCK_DEVICE);
+    honeypot_dapp_state *dapp_state = rollup_load_state_from_disk<honeypot_dapp_state>(STATE_BLOCK_DEVICE);
     if (!dapp_state) {
         (void) rollup_throw_exception_message(rollup_fd, "unable to load dapp state");
         return -1;
