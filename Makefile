@@ -16,7 +16,8 @@ CXXFLAGS := \
 INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed
 
-MACHINE_ENTRYPOINT := /home/dapp/honeypot
+RPC_PROTOCOL=jsonrpc
+MACHINE_ENTRYPOINT := "/home/dapp/honeypot 2>/dev/null"
 MACHINE_FLAGS := \
 	--assert-rolling-template \
     --ram-length=128Mi\
@@ -24,7 +25,7 @@ MACHINE_FLAGS := \
 	--flash-drive=label:root,filename:rootfs.ext2 \
 	--flash-drive=label:honeypot_dapp_state,length:4096
 
-.PHONY: lint test clean
+.PHONY: lint test stress-test clean format-lua
 
 honeypot: honeypot.cpp
 	$(CXX) $(CXXFLAGS) $(INCS) $(LDFLAGS) -o $@ $^
@@ -51,8 +52,17 @@ lint: honeypot.cpp
 	clang-tidy honeypot.cpp -- $(CXXFLAGS) $(INCS)
 
 test: snapshot
-	lua5.4 honeypot-usual-tests.lua
-	lua5.4 honeypot-edge-tests.lua
+	lua5.4 honeypot-usual-tests.lua $(RPC_PROTOCOL)
+	lua5.4 honeypot-edge-tests.lua $(RPC_PROTOCOL)
+
+stress-test: snapshot
+	lua5.4 honeypot-stress-tests.lua
 
 clean:
 	rm -rf snapshot rootfs.ext2 rootfs.tar honeypot
+
+format-lua:
+	stylua --indent-type Spaces --collapse-simple-statement Always \
+		*.lua \
+		cartesi-testlib/encode-utils.lua \
+		cartesi-testlib/rolling-machine.lua

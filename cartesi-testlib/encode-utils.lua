@@ -24,12 +24,18 @@ function encode_utils.encode_be(bits, v, trim)
     return res
 end
 
-function encode_utils.encode_be8(v) return encode_utils.encode_be(8, v) end
-
-function encode_utils.encode_be256(v, trim) return encode_utils.encode_be(256, v, trim) end
+function encode_utils.encode_be256(v)
+    if math.type(v) == "integer" then
+        return string.pack(">I16I16", 0, v)
+    elseif type(v) == "string" and #v == 32 then
+        return v
+    else
+        return encode_utils.encode_be(256, v)
+    end
+end
 
 function encode_utils.encode_erc20_address(v)
-    if type(v) == 'string' and #v == 20 then
+    if type(v) == "string" and #v == 20 then
         return v
     else -- numeric or hexadecimal encoding
         return encode_utils.encode_be(160, v)
@@ -37,22 +43,19 @@ function encode_utils.encode_erc20_address(v)
 end
 
 function encode_utils.encode_erc20_deposit(deposit)
-    return table.concat({
-        encode_utils.encode_be8(deposit.successful and 1 or 0),
-        encode_utils.encode_erc20_address(deposit.contract_address),
-        encode_utils.encode_erc20_address(deposit.sender_address),
-        encode_utils.encode_be256(deposit.amount),
-        deposit.extra_data,
-    })
+    local payload = (deposit.successful and "\x01" or "\x00")
+        .. encode_utils.encode_erc20_address(deposit.contract_address)
+        .. encode_utils.encode_erc20_address(deposit.sender_address)
+        .. encode_utils.encode_be256(deposit.amount)
+    if deposit.extra_data then payload = payload .. deposit.extra_data end
+    return payload
 end
 
 function encode_utils.encode_erc20_transfer_voucher(voucher)
-    return table.concat({
-        "\169\5\156\187", -- First 4 bytes of "transfer(address,uint256)".
-        string.rep('\x00', 12),
-        encode_utils.encode_erc20_address(voucher.destination_address),
-        encode_utils.encode_be256(voucher.amount),
-    })
+    return "\169\5\156\187" -- First 4 bytes of "transfer(address,uint256)".
+        .. "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" -- 12 bytes of padding zeros
+        .. encode_utils.encode_erc20_address(voucher.destination_address)
+        .. encode_utils.encode_be256(voucher.amount)
 end
 
 return encode_utils
