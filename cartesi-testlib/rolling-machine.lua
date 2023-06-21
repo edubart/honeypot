@@ -33,29 +33,37 @@ local function wait_remote_address(remote_addr, remote_port)
     assert(ok, err)
 end
 
+local function spawn_process(bin, args)
+    -- Perform double fork() to prevent zombie processes
+    local pid = assert(unistd.fork())
+    if pid == 0 then -- child
+        if assert(unistd.fork()) == 0 then -- child
+            assert(unistd.execp(bin, args))
+        end
+        os.exit(0)
+    else -- parent
+        assert(sys_wait.wait(pid))
+    end
+end
+
 local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
     if remote_protocol == "local" then
         return cartesi.machine(dir, { skip_root_hash_check = true, skip_version_check = true })
     elseif remote_protocol == "jsonrpc" or remote_protocol == "grpc" then -- remote RPC protocol
-        local remote_pid = assert(unistd.fork())
         local remote_rpc = remote_protocol == "jsonrpc" and require("cartesi.jsonrpc") or require("cartesi.grpc")
         local remote_bin = remote_protocol == "jsonrpc" and "jsonrpc-remote-cartesi-machine" or "remote-cartesi-machine"
         local remote_addr = "127.0.0.1"
         local remote_endpoint = remote_addr .. ":" .. remote_port
         local remote_checkin_endpoint = remote_addr .. ":" .. (remote_port + 1)
-        if remote_pid == 0 then -- child
-            assert(unistd.execp(remote_bin, {
-                [0] = remote_bin,
-                "--log-level=warning",
-                "--server-address=" .. remote_endpoint,
-            }))
-            unistd._exit(0)
-        else -- parent
-            wait_remote_address(remote_addr, remote_port)
-            local remote = assert(remote_rpc.stub(remote_endpoint, remote_checkin_endpoint))
-            local machine = remote.machine(dir, { skip_root_hash_check = true, skip_version_check = true })
-            return machine, remote, remote_rpc, remote_pid
-        end
+        spawn_process(remote_bin, {
+            [0] = remote_bin,
+            "--log-level=warning",
+            "--server-address=" .. remote_endpoint,
+        })
+        wait_remote_address(remote_addr, remote_port)
+        local remote = assert(remote_rpc.stub(remote_endpoint, remote_checkin_endpoint))
+        local machine = remote.machine(dir, { skip_root_hash_check = true, skip_version_check = true })
+        return machine, remote, remote_rpc
     else
         error("invalid remote protocol " .. remote_protocol)
     end
@@ -68,7 +76,7 @@ setmetatable(rolling_machine, {
             next_remote_port = next_remote_port + 2
         end
         remote_protocol = remote_protocol or "jsonrpc"
-        local machine, remote, remote_rpc, remote_pid = spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
+        local machine, remote, remote_rpc = spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
         local config = machine:get_initial_config()
         return setmetatable({
             default_msg_sender = string.rep("\x00", 20),
@@ -78,7 +86,6 @@ setmetatable(rolling_machine, {
             remote = remote,
             remote_rpc = remote_rpc,
             remote_protocol = remote_protocol,
-            remote_pid = remote_pid,
             machine = machine,
             config = config,
             can_rollback = remote_protocol ~= "local",
@@ -93,7 +100,6 @@ function rolling_machine:fork()
     for k, v in pairs(self) do
         forked_self[k] = v
     end
-    forked_self.remote_pid = nil
     forked_self.remote = forked_remote
     forked_self.machine = forked_remote.get_machine()
     return setmetatable(forked_self, rolling_machine)
@@ -120,10 +126,6 @@ function rolling_machine:destroy()
     if self.remote then
         self.remote:shutdown()
         self.remote = nil
-    end
-    if self.remote_pid then -- remove zombie pid
-        sys_wait.wait(self.remote_pid)
-        self.remote_pid = nil
     end
     setmetatable(self, nil)
 end
