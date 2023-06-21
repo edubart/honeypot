@@ -1,6 +1,7 @@
 local cartesi = require("cartesi")
 local unistd = require("posix.unistd")
 local sys_socket = require("posix.sys.socket")
+local sys_wait = require("posix.sys.wait")
 local time = require("posix.time")
 local encode_utils = require("cartesi-testlib.encode-utils")
 
@@ -53,7 +54,7 @@ local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
             wait_remote_address(remote_addr, remote_port)
             local remote = assert(remote_rpc.stub(remote_endpoint, remote_checkin_endpoint))
             local machine = remote.machine(dir, { skip_root_hash_check = true, skip_version_check = true })
-            return machine, remote, remote_rpc
+            return machine, remote, remote_rpc, remote_pid
         end
     else
         error("invalid remote protocol " .. tostring(remote_protocol))
@@ -67,18 +68,19 @@ setmetatable(rolling_machine, {
             next_remote_port = next_remote_port + 2
         end
         remote_protocol = remote_protocol or "jsonrpc"
-        local machine, remote, remote_rpc = spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
+        local machine, remote, remote_rpc, remote_pid = spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
         local config = machine:get_initial_config()
         return setmetatable({
             default_msg_sender = string.rep("\x00", 20),
             epoch_number = 0,
             input_number = 0,
             block_number = 0,
-            remote_rpc = remote_rpc,
             remote = remote,
+            remote_rpc = remote_rpc,
+            remote_protocol = remote_protocol,
+            remote_pid = remote_pid,
             machine = machine,
             config = config,
-            remote_protocol = remote_protocol,
             can_rollback = remote_protocol ~= "local",
         }, rolling_machine_mt)
     end,
@@ -117,6 +119,10 @@ function rolling_machine:destroy()
     if self.remote then
         self.remote:shutdown()
         self.remote = nil
+    end
+    if self.remote_pid then -- remove zombie pid
+        sys_wait.wait(self.remote_pid)
+        self.remote_pid = nil
     end
     setmetatable(self, nil)
 end
