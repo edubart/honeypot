@@ -57,7 +57,7 @@ local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
             return machine, remote, remote_rpc, remote_pid
         end
     else
-        error("invalid remote protocol " .. tostring(remote_protocol))
+        error("invalid remote protocol " .. remote_protocol)
     end
 end
 
@@ -93,6 +93,7 @@ function rolling_machine:fork()
     for k, v in pairs(self) do
         forked_self[k] = v
     end
+    forked_self.remote_pid = nil
     forked_self.remote = forked_remote
     forked_self.machine = forked_remote.get_machine()
     return setmetatable(forked_self, rolling_machine)
@@ -176,7 +177,7 @@ function rolling_machine:read_notice() return { payload = self:read_simple_paylo
 
 function rolling_machine:read_voucher()
     local start = self.config.rollup.tx_buffer.start
-    assert(self.machine:read_memory(start, 12) == ERC20_ADDRESS_TO_BE256_PADS, "invalid erc20 address padding")
+    assert(self.machine:read_memory(start, 12) == ERC20_ADDRESS_TO_BE256_PADS, "invalid ERC-20 address padding")
     return {
         address = self.machine:read_memory(start + 12, 20),
         payload = self:read_simple_payload(32),
@@ -190,7 +191,7 @@ function rolling_machine:read_yield_reason()
     return nil
 end
 
-function rolling_machine:run_collecting_events()
+function rolling_machine:run_until_yield_or_halt()
     local vouchers = {}
     local notices = {}
     local reports = {}
@@ -244,13 +245,13 @@ local function rolling_machine_advance_state(self, input)
     -- Write the input metadata and data
     self:write_input_metadata(input.metadata or {})
     self:write_input_payload(input.payload or "")
-    -- Tell machine this is an advance-state request
+    -- Write the request type
     self.machine:write_htif_fromhost_data(CARTESI_ROLLUP_ADVANCE_STATE)
     -- Reset the Y flag so machine can proceed
     self.machine:reset_iflags_Y()
     -- Run the advance request
-    local res = self:run_collecting_events()
-    -- Restore machine state for rejected requests
+    local res = self:run_until_yield_or_halt()
+    -- Increase input number only for accepted requests
     if res.status == "accepted" then self.input_number = self.input_number + 1 end
     return res
 end
@@ -271,20 +272,16 @@ function rolling_machine:advance_state(input, rollback_on_reject)
             local checkpoint <close> = self:fork()
             -- Advance state
             local res = rolling_machine_advance_state(self, input)
-            if res.status == "rejected" then
-                -- Rollback machine state
-                self:swap(checkpoint)
-            end
+            -- Rollback machine state for rejected requests
+            if res.status == "rejected" then self:swap(checkpoint) end
             return res
         elseif self.remote_protocol == "grpc" then
             -- Create machine state checkpoint
             self.machine:snapshot()
             -- Advance state
             local res = rolling_machine_advance_state(self, input)
-            if res.status == "rejected" then
-                -- Rollback machine state
-                self.machine:rollback()
-            end
+            -- Rollback machine state for rejected requests
+            if res.status == "rejected" then self.machine:rollback() end
             return res
         else
             error("protocol " .. self.remote_protocol .. " does not support machine snapshots")
@@ -296,12 +293,12 @@ local function rolling_machine_inspect_state(self, input)
     -- Write the input metadata and data
     self:write_input_metadata(input.metadata or {})
     self:write_input_payload(input.payload or "")
-    -- Tell machine this is an inspect-state request
+    -- Write the request type
     self.machine:write_htif_fromhost_data(CARTESI_ROLLUP_INSPECT_STATE)
     -- Reset the Y flag so machine can proceed
     self.machine:reset_iflags_Y()
     -- Run the inspect request
-    return self:run_collecting_events()
+    return self:run_until_yield_or_halt()
 end
 
 function rolling_machine:inspect_state(input, rollback)
