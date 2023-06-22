@@ -8,7 +8,12 @@ local ERC20_CONTRACT_ADDRESS = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
 local ERC20_WITHDRAW_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 local ERC20_ALICE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 local MACHINE_STORED_DIR = "snapshot"
-local REMOTE_RPC_PROTOCOL = arg[1] or "jsonrpc"
+local MACHINE_RUNTIME_CONFIG = {
+    suppress_console_output = false,
+    skip_root_hash_check = true,
+    skip_version_check = true,
+}
+local REMOTE_PROTOCOL = arg[1] or "jsonrpc"
 
 local HONEYPOT_STATUS_SUCCESS = string.char(0)
 local HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED = string.char(1)
@@ -18,7 +23,7 @@ local HONEYPOT_STATUS_WITHDRAW_NO_FUNDS = string.char(4)
 -- local HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED = string.char(5)
 
 describe("honeypot", function()
-    local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, REMOTE_RPC_PROTOCOL)
+    local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, MACHINE_RUNTIME_CONFIG, REMOTE_PROTOCOL)
 
     it("should accept first deposit", function()
         local res = rolling_machine:advance_state({

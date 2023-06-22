@@ -7,13 +7,20 @@ local ERC20_PORTAL_ADDRESS = "0x4340ac4FcdFC5eF8d34930C96BBac2Af1301DF40"
 local ERC20_CONTRACT_ADDRESS = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
 local ERC20_ALICE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 local MACHINE_STORED_DIR = "snapshot"
-local REMOTE_RPC_PROTOCOL = arg[1] or "jsonrpc"
+local MACHINE_RUNTIME_CONFIG = {
+    suppress_console_output = false,
+    skip_root_hash_check = true,
+    skip_version_check = true,
+}
+local REMOTE_PROTOCOL = arg[1] or "jsonrpc"
 
 local HONEYPOT_STATUS_SUCCESS = string.char(0)
 local HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW = string.char(3)
 
 describe("honeypot", function()
-    local inital_rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, REMOTE_RPC_PROTOCOL)
+    local inital_rolling_machine <close> =
+        cartesi_rolling_machine(MACHINE_STORED_DIR, MACHINE_RUNTIME_CONFIG, REMOTE_PROTOCOL)
+
     it("should reject empty input", function()
         local rolling_machine <close> = inital_rolling_machine:fork()
         local res = rolling_machine:advance_state({

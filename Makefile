@@ -26,7 +26,7 @@ INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed
 
 RPC_PROTOCOL=jsonrpc
-MACHINE_ENTRYPOINT := "/home/dapp/honeypot 2>/dev/null"
+MACHINE_ENTRYPOINT := /home/dapp/honeypot
 MACHINE_FLAGS := \
 	--assert-rolling-template \
 	--ram-length=128Mi\

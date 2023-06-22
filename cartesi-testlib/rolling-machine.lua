@@ -46,9 +46,9 @@ local function spawn_process(bin, args)
     end
 end
 
-local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
+local function spawn_remote_cartesi_machine(dir, runtime_config, remote_protocol, remote_port)
     if remote_protocol == "local" then
-        return cartesi.machine(dir, { skip_root_hash_check = true, skip_version_check = true })
+        return cartesi.machine(dir, runtime_config)
     elseif remote_protocol == "jsonrpc" or remote_protocol == "grpc" then -- remote RPC protocol
         local remote_rpc = remote_protocol == "jsonrpc" and require("cartesi.jsonrpc") or require("cartesi.grpc")
         local remote_bin = remote_protocol == "jsonrpc" and "jsonrpc-remote-cartesi-machine" or "remote-cartesi-machine"
@@ -62,7 +62,7 @@ local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
         })
         wait_remote_address(remote_addr, remote_port)
         local remote = assert(remote_rpc.stub(remote_endpoint, remote_checkin_endpoint))
-        local machine = remote.machine(dir, { skip_root_hash_check = true, skip_version_check = true })
+        local machine = remote.machine(dir, runtime_config)
         return machine, remote, remote_rpc
     else
         error("invalid remote protocol " .. remote_protocol)
@@ -70,13 +70,15 @@ local function spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
 end
 
 setmetatable(rolling_machine, {
-    __call = function(rolling_machine_mt, dir, remote_protocol, remote_port)
+    __call = function(rolling_machine_mt, dir, runtime_config, remote_protocol, remote_port)
         if not remote_port then
             remote_port = next_remote_port
             next_remote_port = next_remote_port + 2
         end
+        runtime_config = runtime_config or {}
         remote_protocol = remote_protocol or "jsonrpc"
-        local machine, remote, remote_rpc = spawn_remote_cartesi_machine(dir, remote_port, remote_protocol)
+        local machine, remote, remote_rpc =
+            spawn_remote_cartesi_machine(dir, runtime_config, remote_protocol, remote_port)
         local config = machine:get_initial_config()
         return setmetatable({
             default_msg_sender = string.rep("\x00", 20),

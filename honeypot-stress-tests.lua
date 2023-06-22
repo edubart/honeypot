@@ -11,6 +11,11 @@ local ERC20_PORTAL_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x4340ac
 local ERC20_CONTRACT_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0xc6e7DF5E7b4f2A278906862b61205850344D4e7d")
 local ERC20_WITHDRAW_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 local MACHINE_STORED_DIR = "snapshot"
+local MACHINE_RUNTIME_CONFIG = {
+    suppress_console_output = true,
+    skip_root_hash_check = true,
+    skip_version_check = true,
+}
 
 local HONEYPOT_STATUS_SUCCESS = string.char(0)
 local HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED = string.char(1)
@@ -194,7 +199,7 @@ local function inspect_balance_check(rolling_machine, balance)
 end
 
 local function perform_tests(remote_protocol, num_iterations)
-    local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, remote_protocol)
+    local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, MACHINE_RUNTIME_CONFIG, remote_protocol)
     local balance = bint256(0)
     local num_iterations1 = num_iterations // 10
     local num_iterations2 = num_iterations - num_iterations1
