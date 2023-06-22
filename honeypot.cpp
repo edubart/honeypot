@@ -188,13 +188,13 @@ static STATE *rollup_load_state_from_disk(const char *block_device) {
     // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
     const int state_fd = open(block_device, O_RDWR);
     if (state_fd < 0) {
-        (void) fprintf(stderr, "[dapp] unable to open state block device: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to open state block device: %s\n", strerror(errno));
         return nullptr;
     }
     // Check if the block device size is big enough.
     const off_t size = lseek(state_fd, 0, SEEK_END);
     if (size < 0) {
-        (void) fprintf(stderr, "[dapp] unable to seek state block device: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to seek state block device: %s\n", strerror(errno));
         return nullptr;
     }
     if (static_cast<uint64_t>(size) < sizeof(STATE)) {
@@ -205,12 +205,12 @@ static STATE *rollup_load_state_from_disk(const char *block_device) {
     // Note that we call mmap() but never call munmap(), we intentionally let the OS automatically do this on exit.
     void *mem = reinterpret_cast<STATE *>(mmap(nullptr, sizeof(STATE), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, state_fd, 0));
     if (mem == MAP_FAILED) {
-        (void) fprintf(stderr, "[dapp] unable to map state block device to memory: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to map state block device to memory: %s\n", strerror(errno));
         return nullptr;
     }
     // After the mmap() call, the file descriptor can be closed immediately without invalidating the mapping.
     if (close(state_fd) < 0) {
-        (void) fprintf(stderr, "[dapp] unable to close state block device: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to close state block device: %s\n", strerror(errno));
         return nullptr;
     }
     return reinterpret_cast<STATE *>(mem);
@@ -221,7 +221,7 @@ template <typename STATE> [[maybe_unused]]
 static bool rollup_flush_state_to_disk(STATE *state) {
     // Flushes state changes made into memory using mmap(2) back to the filesystem.
     if (msync(state, sizeof(STATE), MS_SYNC) < 0) {
-        (void) fprintf(stderr, "[dapp] unable to flush state from memory to disk: %s\n", std::strerror(errno));
+        (void) fprintf(stderr, "[dapp] unable to flush state from memory to disk: %s\n", strerror(errno));
         return false;
     }
     return true;
