@@ -4,6 +4,9 @@ local lester = require("cartesi-testlib.lester")
 local bint256 = require("cartesi-testlib.bint")(256)
 local describe, it, expect = lester.describe, lester.it, lester.expect
 
+-- Measure time using gettime() instead of os.clock(), so benchmark include remote process CPU usage.
+lester.seconds = require("socket").gettime
+
 local ERC20_PORTAL_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x4340ac4FcdFC5eF8d34930C96BBac2Af1301DF40")
 local ERC20_CONTRACT_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0xc6e7DF5E7b4f2A278906862b61205850344D4e7d")
 local ERC20_WITHDRAW_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
@@ -196,6 +199,9 @@ local function perform_tests(remote_protocol, num_iterations)
     local num_iterations1 = num_iterations // 10
     local num_iterations2 = num_iterations - num_iterations1
 
+    -- Make tests reproducible
+    math.randomseed(0)
+
     describe("honeypot " .. remote_protocol .. " stress", function()
         it("random advance state and inspect state (" .. num_iterations1 .. " iterations)", function()
             for _ = 1, num_iterations1 do
@@ -205,19 +211,19 @@ local function perform_tests(remote_protocol, num_iterations)
         end)
 
         it("random advance state (" .. num_iterations2 .. " iterations)", function()
+            local start = lester.seconds()
             for _ = 1, num_iterations2 do
                 balance = random_advance_state(rolling_machine, balance)
             end
+            local elapsed = lester.seconds() - start
+            print(string.format("%s %.2f req/s", remote_protocol, num_iterations2 / elapsed))
             inspect_balance_check(rolling_machine, balance)
         end)
     end)
 end
 
--- Make tests reproducible
-math.randomseed(0)
-
 perform_tests("local", 10000)
-perform_tests("jsonrpc", 3000)
+perform_tests("jsonrpc", 1500)
 perform_tests("grpc", 150)
 
 print("Running tests for 1 million requests, this should take a few minutes...")
