@@ -12,7 +12,9 @@ local ERC20_CONTRACT_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0xc6e7
 local ERC20_WITHDRAW_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 local MACHINE_STORED_DIR = "snapshot"
 local MACHINE_RUNTIME_CONFIG = {
-    suppress_console_output = true,
+    htif = {
+        no_console_putchar = true
+    },
     skip_root_hash_check = true,
     skip_version_check = true,
 }

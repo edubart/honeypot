@@ -9,7 +9,6 @@ local ERC20_WITHDRAW_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 local ERC20_ALICE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 local MACHINE_STORED_DIR = "snapshot"
 local MACHINE_RUNTIME_CONFIG = {
-    suppress_console_output = false,
     skip_root_hash_check = true,
     skip_version_check = true,
 }
