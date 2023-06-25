@@ -87,7 +87,7 @@ describe("honeypot", function()
                 msg_sender = ERC20_PORTAL_ADDRESS,
             },
             payload = encode_utils.encode_erc20_deposit({
-                successful = false,
+                successful = true,
                 contract_address = ERC20_ALICE_ADDRESS,
                 sender_address = ERC20_ALICE_ADDRESS,
                 amount = 3,
@@ -97,7 +97,7 @@ describe("honeypot", function()
         expect.equal(#res.vouchers, 0)
         expect.equal(#res.notices, 0)
         expect.equal(#res.reports, 1)
-        expect.truthy(res.reports[1].payload, HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT)
+        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT)
     end)
 
     it("should reject deposit with invalid sender address", function()
@@ -175,7 +175,7 @@ describe("honeypot", function()
         expect.equal(#res.vouchers, 1)
         expect.equal(#res.notices, 0)
         expect.equal(#res.reports, 1)
-        expect.truthy(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
+        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
         expect.equal(res.vouchers[1], {
             address = encode_utils.encode_erc20_address(ERC20_CONTRACT_ADDRESS),
             payload = encode_utils.encode_erc20_transfer_voucher({
@@ -195,7 +195,7 @@ describe("honeypot", function()
         expect.equal(#res.vouchers, 0)
         expect.equal(#res.notices, 0)
         expect.equal(#res.reports, 1)
-        expect.truthy(res.reports[1].payload, HONEYPOT_STATUS_WITHDRAW_NO_FUNDS)
+        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_WITHDRAW_NO_FUNDS)
     end)
 
     it("should accept inspect when there is no funds", function()

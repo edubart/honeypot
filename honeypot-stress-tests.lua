@@ -13,7 +13,7 @@ local ERC20_WITHDRAW_ADDRESS_ENCODED = encode_utils.encode_erc20_address("0x7099
 local MACHINE_STORED_DIR = "snapshot"
 local MACHINE_RUNTIME_CONFIG = {
     htif = {
-        no_console_putchar = true
+        no_console_putchar = true,
     },
     skip_root_hash_check = true,
     skip_version_check = true,
