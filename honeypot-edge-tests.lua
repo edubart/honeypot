@@ -28,10 +28,13 @@ describe("honeypot", function()
             },
             payload = "",
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject incomplete deposit input", function()
@@ -44,10 +47,13 @@ describe("honeypot", function()
                 .. encode_utils.encode_erc20_address(ERC20_CONTRACT_ADDRESS)
                 .. encode_utils.encode_erc20_address(ERC20_ALICE_ADDRESS),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit of an addition overflow", function()
@@ -63,11 +69,13 @@ describe("honeypot", function()
                 amount = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             }),
         })
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
+        }
+        expect.equal(res, expected_res)
 
         res = rolling_machine:advance_state({
             metadata = {
@@ -80,11 +88,13 @@ describe("honeypot", function()
                 amount = 1,
             }),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW)
+        expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject input number out of supported range", function()
@@ -101,10 +111,13 @@ describe("honeypot", function()
                 amount = 1,
             }),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject block number out of supported range", function()
@@ -121,10 +134,13 @@ describe("honeypot", function()
                 amount = 1,
             }),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject epoch number out of supported range", function()
@@ -141,10 +157,13 @@ describe("honeypot", function()
                 amount = 1,
             }),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject timestamp out of supported range", function()
@@ -161,10 +180,13 @@ describe("honeypot", function()
                 amount = 1,
             }),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject input with length out of supported range", function()
@@ -184,10 +206,13 @@ describe("honeypot", function()
                 }),
             },
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject input with length out of supported range", function()
@@ -207,10 +232,13 @@ describe("honeypot", function()
                 }),
             },
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit with maximum possible data size", function()
@@ -232,9 +260,12 @@ describe("honeypot", function()
                 extra_data = string.rep("X", max_data_size),
             }),
         })
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 end)

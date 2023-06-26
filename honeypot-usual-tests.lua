@@ -36,11 +36,13 @@ describe("honeypot", function()
                 amount = 1,
             }),
         }, true)
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should accept second deposit", function()
@@ -55,11 +57,34 @@ describe("honeypot", function()
                 amount = 2,
             }),
         }, true)
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
+        }
+        expect.equal(res, expected_res)
+    end)
+
+    it("should accept third deposit with 0 amount", function()
+        local res = rolling_machine:advance_state({
+            metadata = {
+                msg_sender = ERC20_PORTAL_ADDRESS,
+            },
+            payload = encode_utils.encode_erc20_deposit({
+                successful = true,
+                contract_address = ERC20_CONTRACT_ADDRESS,
+                sender_address = ERC20_ALICE_ADDRESS,
+                amount = 0,
+            }),
+        }, true)
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit with transfer failed status", function()
@@ -74,11 +99,13 @@ describe("honeypot", function()
                 amount = 3,
             }),
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit with invalid contract address", function()
@@ -93,11 +120,13 @@ describe("honeypot", function()
                 amount = 3,
             }),
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit with invalid sender address", function()
@@ -112,10 +141,13 @@ describe("honeypot", function()
                 amount = 3,
             }),
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit with invalid payload length", function()
@@ -131,10 +163,13 @@ describe("honeypot", function()
                 extra_data = "\x00",
             }),
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should accept balance inspect", function()
@@ -143,13 +178,13 @@ describe("honeypot", function()
                 msg_sender = ERC20_ALICE_ADDRESS,
             },
         }, true)
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1], {
-            payload = encode_utils.encode_be256(3),
-        })
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = encode_utils.encode_be256(3) } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject withdraw with invalid payload length", function()
@@ -159,10 +194,13 @@ describe("honeypot", function()
             },
             payload = "\x00",
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 0)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = {},
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should accept withdraw when there is funds", function()
@@ -171,18 +209,21 @@ describe("honeypot", function()
                 msg_sender = ERC20_WITHDRAW_ADDRESS,
             },
         }, true)
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 1)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
-        expect.equal(res.vouchers[1], {
-            address = encode_utils.encode_erc20_address(ERC20_CONTRACT_ADDRESS),
-            payload = encode_utils.encode_erc20_transfer_voucher({
-                destination_address = ERC20_WITHDRAW_ADDRESS,
-                amount = 3,
-            }),
-        })
+        local expected_res = {
+            status = "accepted",
+            vouchers = {
+                {
+                    address = encode_utils.encode_erc20_address(ERC20_CONTRACT_ADDRESS),
+                    payload = encode_utils.encode_erc20_transfer_voucher({
+                        destination_address = ERC20_WITHDRAW_ADDRESS,
+                        amount = 3,
+                    }),
+                },
+            },
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject withdraw when there is no funds", function()
@@ -191,11 +232,13 @@ describe("honeypot", function()
                 msg_sender = ERC20_WITHDRAW_ADDRESS,
             },
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_WITHDRAW_NO_FUNDS)
+        local expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_WITHDRAW_NO_FUNDS } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should accept inspect when there is no funds", function()
@@ -204,11 +247,13 @@ describe("honeypot", function()
                 msg_sender = ERC20_ALICE_ADDRESS,
             },
         }, true)
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, encode_utils.encode_be256(0))
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = encode_utils.encode_be256(0) } },
+        }
+        expect.equal(res, expected_res)
     end)
 
     it("should reject deposit of an addition overflow", function()
@@ -223,11 +268,13 @@ describe("honeypot", function()
                 amount = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             }),
         }, true)
-        expect.equal(res.status, "accepted")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_SUCCESS)
+        local expected_res = {
+            status = "accepted",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
+        }
+        expect.equal(res, expected_res)
 
         res = rolling_machine:advance_state({
             metadata = {
@@ -240,10 +287,12 @@ describe("honeypot", function()
                 amount = 1,
             }),
         }, true)
-        expect.equal(res.status, "rejected")
-        expect.equal(#res.vouchers, 0)
-        expect.equal(#res.notices, 0)
-        expect.equal(#res.reports, 1)
-        expect.equal(res.reports[1].payload, HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW)
+        expected_res = {
+            status = "rejected",
+            vouchers = {},
+            notices = {},
+            reports = { { payload = HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW } },
+        }
+        expect.equal(res, expected_res)
     end)
 end)
