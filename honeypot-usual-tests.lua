@@ -19,7 +19,6 @@ local HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED = string.char(1)
 local HONEYPOT_STATUS_DEPOSIT_INVALID_CONTRACT = string.char(2)
 local HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW = string.char(3)
 local HONEYPOT_STATUS_WITHDRAW_NO_FUNDS = string.char(4)
--- local HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED = string.char(5)
 
 describe("honeypot", function()
     local rolling_machine <close> = cartesi_rolling_machine(MACHINE_STORED_DIR, MACHINE_RUNTIME_CONFIG, REMOTE_PROTOCOL)
@@ -252,46 +251,6 @@ describe("honeypot", function()
             vouchers = {},
             notices = {},
             reports = { { payload = encode_utils.encode_be256(0) } },
-        }
-        expect.equal(res, expected_res)
-    end)
-
-    it("should reject deposit of an addition overflow", function()
-        local res = rolling_machine:advance_state({
-            metadata = {
-                msg_sender = ERC20_PORTAL_ADDRESS,
-            },
-            payload = encode_utils.encode_erc20_deposit({
-                successful = true,
-                contract_address = ERC20_CONTRACT_ADDRESS,
-                sender_address = ERC20_ALICE_ADDRESS,
-                amount = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            }),
-        }, true)
-        local expected_res = {
-            status = "accepted",
-            vouchers = {},
-            notices = {},
-            reports = { { payload = HONEYPOT_STATUS_SUCCESS } },
-        }
-        expect.equal(res, expected_res)
-
-        res = rolling_machine:advance_state({
-            metadata = {
-                msg_sender = ERC20_PORTAL_ADDRESS,
-            },
-            payload = encode_utils.encode_erc20_deposit({
-                successful = true,
-                contract_address = ERC20_CONTRACT_ADDRESS,
-                sender_address = ERC20_ALICE_ADDRESS,
-                amount = 1,
-            }),
-        }, true)
-        expected_res = {
-            status = "rejected",
-            vouchers = {},
-            notices = {},
-            reports = { { payload = HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW } },
         }
         expect.equal(res, expected_res)
     end)

@@ -201,6 +201,7 @@ function rolling_machine:run_until_yield_or_halt()
     local reports = {}
     while true do
         local break_reason = self.machine:run()
+        if self.run_break_cb then self.run_break_cb(self, break_reason) end
         local yield_reason = self:read_yield_reason()
         if break_reason == cartesi.BREAK_REASON_HALTED then
             return { status = "halted", vouchers = vouchers, notices = notices, reports = reports }

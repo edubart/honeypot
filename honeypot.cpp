@@ -325,7 +325,7 @@ static bool honeypot_deposit(int rollup_fd, honeypot_dapp_state *dapp_state, con
         return false;
     }
     // Flush dapp state to disk, so we can inspect its state from outside.
-    rollup_flush_state_to_disk(dapp_state);
+    (void) rollup_flush_state_to_disk(dapp_state);
     // Report that operation succeed.
     (void) fprintf(stderr, "[dapp] successful deposit\n");
     (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
@@ -350,7 +350,7 @@ static bool honeypot_withdraw(int rollup_fd, honeypot_dapp_state *dapp_state) {
     // Set balance to 0.
     dapp_state->balance = be256{};
     // Flush dapp state to disk, so we can inspect its state from outside.
-    rollup_flush_state_to_disk(dapp_state);
+    (void) rollup_flush_state_to_disk(dapp_state);
     // Report that operation succeed.
     (void) fprintf(stderr, "[dapp] successful withdrawal\n");
     (void) rollup_write_report(rollup_fd, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
