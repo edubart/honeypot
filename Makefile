@@ -29,7 +29,7 @@ RPC_PROTOCOL=jsonrpc
 MACHINE_ENTRYPOINT := /home/dapp/honeypot
 MACHINE_FLAGS := \
 	--assert-rolling-template \
-	--ram-length=128Mi\
+	--ram-length=64Mi\
 	--rollup \
 	--flash-drive=label:root,filename:rootfs.ext2 \
 	--flash-drive=label:honeypot_dapp_state,length:4096

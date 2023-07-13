@@ -8,4 +8,5 @@ make snapshot
 
 # run tests
 make test
+make stress-test
 ```

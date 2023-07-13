@@ -100,7 +100,7 @@ static bool rollup_write_voucher(int rollup_fd, const erc20_address &destination
 // Finish last rollup request, wait for next rollup request and process it.
 // For every new request, reads an input POD and call backs its respective advance or inspect state handler.
 template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
-static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept_previous_request, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept_previous_request, ADVANCE_STATE advance_cb, INSPECT_STATE inspect_cb) {
     // Finish previous request and wait for the next request.
     rollup_finish finish_request{};
     finish_request.accept_previous_request = accept_previous_request;
@@ -168,7 +168,7 @@ static int rollup_open() {
 
 // Process rollup requests forever.
 template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[noreturn]]
-static bool rollup_request_loop(int rollup_fd, STATE *state, ADVANCE_STATE &&advance_cb, INSPECT_STATE &&inspect_cb) {
+static bool rollup_request_loop(int rollup_fd, STATE *state, ADVANCE_STATE advance_cb, INSPECT_STATE inspect_cb) {
     // Rollup device requires that we initialize the first previous request as accepted.
     bool accept_previous_request = true;
     // Request loop, should loop forever.
@@ -286,7 +286,7 @@ struct honeypot_advance_input {
 
 // POD for inspect inputs.
 struct honeypot_inspect_input {
-    uint8_t dummy; // Unused, here just to be explicit, because empty structures in C++ always have one byte.
+    // No data needed for inspect requests.
 } __attribute__((packed));
 
 // POD for advance reports.
