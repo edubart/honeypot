@@ -99,7 +99,7 @@ static bool rollup_write_voucher(int rollup_fd, const erc20_address &destination
 
 // Finish last rollup request, wait for next rollup request and process it.
 // For every new request, reads an input POD and call backs its respective advance or inspect state handler.
-template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
+template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_QUERY, typename ADVANCE_STATE, typename INSPECT_STATE> [[nodiscard]]
 static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept_previous_request, ADVANCE_STATE advance_cb, INSPECT_STATE inspect_cb) {
     // Finish previous request and wait for the next request.
     rollup_finish finish_request{};
@@ -108,10 +108,10 @@ static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept
         (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_FINISH: %s\n", strerror(errno));
         return false;
     }
-    const uint64_t input_data_length = static_cast<uint64_t>(finish_request.next_request_payload_length);
+    const uint64_t payload_length = static_cast<uint64_t>(finish_request.next_request_payload_length);
     if (finish_request.next_request_type == CARTESI_ROLLUP_ADVANCE_STATE) { // Advance state.
         // Check if input payload length is supported.
-        if (input_data_length > sizeof(ADVANCE_INPUT)) {
+        if (payload_length > sizeof(ADVANCE_INPUT)) {
             (void) fprintf(stderr, "[dapp] advance request payload length is too large\n");
             return false;
         }
@@ -130,23 +130,23 @@ static bool rollup_process_next_request(int rollup_fd, STATE *state, bool accept
             request.metadata.input_index};
         std::copy(std::begin(request.metadata.msg_sender), std::end(request.metadata.msg_sender), input_metadata.sender.begin());
         // Call advance state handler.
-        return advance_cb(rollup_fd, state, input_metadata, input_data, input_data_length);
+        return advance_cb(rollup_fd, state, input_metadata, input_data, payload_length);
     } else if (finish_request.next_request_type == CARTESI_ROLLUP_INSPECT_STATE) { // Inspect state.
-        // Check if input payload length is supported.
-        if (input_data_length > sizeof(INSPECT_INPUT)) {
+        // Check if query payload length is supported.
+        if (payload_length > sizeof(INSPECT_QUERY)) {
             (void) fprintf(stderr, "[dapp] inspect request payload length is too large\n");
             return false;
         }
-        // Read the input.
-        INSPECT_INPUT input_data{};
+        // Read the query.
+        INSPECT_QUERY query_data{};
         rollup_inspect_state request{};
-        request.payload = {reinterpret_cast<uint8_t *>(&input_data), sizeof(input_data)};
+        request.payload = {reinterpret_cast<uint8_t *>(&query_data), sizeof(query_data)};
         if (ioctl(rollup_fd, IOCTL_ROLLUP_READ_INSPECT_STATE, &request) < 0) {
             (void) fprintf(stderr, "[dapp] unable to perform IOCTL_ROLLUP_READ_INSPECT_STATE: %s\n", strerror(errno));
             return false;
         }
         // Call inspect state handler.
-        return inspect_cb(rollup_fd, state, input_data, input_data_length);
+        return inspect_cb(rollup_fd, state, query_data, payload_length);
     } else {
         (void) fprintf(stderr, "[dapp] invalid request type\n");
         return false;
@@ -167,13 +167,13 @@ static int rollup_open() {
 }
 
 // Process rollup requests forever.
-template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_INPUT, typename ADVANCE_STATE, typename INSPECT_STATE> [[noreturn]]
+template <typename STATE, typename ADVANCE_INPUT, typename INSPECT_QUERY, typename ADVANCE_STATE, typename INSPECT_STATE> [[noreturn]]
 static bool rollup_request_loop(int rollup_fd, STATE *state, ADVANCE_STATE advance_cb, INSPECT_STATE inspect_cb) {
     // Rollup device requires that we initialize the first previous request as accepted.
     bool accept_previous_request = true;
     // Request loop, should loop forever.
     while (true) {
-        accept_previous_request = rollup_process_next_request<STATE, ADVANCE_INPUT, INSPECT_INPUT>(rollup_fd, state, accept_previous_request, advance_cb, inspect_cb);
+        accept_previous_request = rollup_process_next_request<STATE, ADVANCE_INPUT, INSPECT_QUERY>(rollup_fd, state, accept_previous_request, advance_cb, inspect_cb);
     }
     // Unreachable code.
 }
@@ -284,8 +284,8 @@ struct honeypot_advance_input {
     erc20_deposit_payload deposit;
 } __attribute__((packed));
 
-// POD for inspect inputs.
-struct honeypot_inspect_input {
+// POD for inspect queries.
+struct honeypot_inspect_query {
     // No data needed for inspect requests.
 } __attribute__((packed));
 
@@ -364,10 +364,10 @@ static bool honeypot_inspect_balance(int rollup_fd, honeypot_dapp_state *dapp_st
 }
 
 // Process advance state requests.
-static bool honeypot_advance_state(int rollup_fd, honeypot_dapp_state *dapp_state, const rollup_advance_input_metadata &input_metadata, const honeypot_advance_input &input, uint64_t input_length) {
-    if (input_metadata.sender == ERC20_PORTAL_ADDRESS && input_length == sizeof(erc20_deposit_payload)) { // Deposit
+static bool honeypot_advance_state(int rollup_fd, honeypot_dapp_state *dapp_state, const rollup_advance_input_metadata &input_metadata, const honeypot_advance_input &input, uint64_t input_payload_length) {
+    if (input_metadata.sender == ERC20_PORTAL_ADDRESS && input_payload_length == sizeof(erc20_deposit_payload)) { // Deposit
         return honeypot_deposit(rollup_fd, dapp_state, input.deposit);
-    } else if (input_metadata.sender == ERC20_WITHDRAWAL_ADDRESS && input_length == 0) { // Withdraw
+    } else if (input_metadata.sender == ERC20_WITHDRAWAL_ADDRESS && input_payload_length == 0) { // Withdraw
         return honeypot_withdraw(rollup_fd, dapp_state);
     } else { // Invalid request
         (void) fprintf(stderr, "[dapp] invalid advance state request\n");
@@ -376,9 +376,9 @@ static bool honeypot_advance_state(int rollup_fd, honeypot_dapp_state *dapp_stat
 }
 
 // Process inspect state requests.
-static bool honeypot_inspect_state(int rollup_fd, honeypot_dapp_state *dapp_state, const honeypot_inspect_input &input, uint64_t input_length) {
-    (void) input;
-    if (input_length == 0) { // Inspect balance.
+static bool honeypot_inspect_state(int rollup_fd, honeypot_dapp_state *dapp_state, const honeypot_inspect_query &query, uint64_t query_payload_length) {
+    (void) query;
+    if (query_payload_length == 0) { // Inspect balance.
         return honeypot_inspect_balance(rollup_fd, dapp_state);
     } else { // Invalid request.
         (void) fprintf(stderr, "[dapp] invalid inspect state request\n");
@@ -401,6 +401,6 @@ int main() {
         return -1;
     }
     // Process requests forever.
-    rollup_request_loop<honeypot_dapp_state, honeypot_advance_input, honeypot_inspect_input>(rollup_fd, dapp_state, honeypot_advance_state, honeypot_inspect_state);
+    rollup_request_loop<honeypot_dapp_state, honeypot_advance_input, honeypot_inspect_query>(rollup_fd, dapp_state, honeypot_advance_state, honeypot_inspect_state);
     // Unreachable code, return is intentionally omitted.
 }
