@@ -1,0 +1,3 @@
+2edb9a874dfff2e9ce33829ac3f71cc786467ecb  dep/init                  https://raw.githubusercontent.com/cartesi/machine-emulator-tools/feature/new-init/skel/sbin/init
+7d30b15e783f9efe3b9b6c8de39df0b6f61c65b7  dep/linux-headers.tar.xz  https://github.com/cartesi/image-kernel/releases/download/v0.16.0/linux-headers-5.15.63-ctsi-2.tar.xz
+a2697e86266ecb9790a23733e084b035b02cff9e  dep/linux.bin             https://github.com/cartesi/image-kernel/releases/download/v0.16.0/linux-5.15.63-ctsi-2.bin
