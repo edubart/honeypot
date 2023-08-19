@@ -22,7 +22,6 @@ CXXFLAGS := \
 	-DCONFIG_ERC20_WITHDRAWAL_ADDRESS=$(CONFIG_ERC20_WITHDRAWAL_ADDRESS) \
 	-DCONFIG_ERC20_CONTRACT_ADDRESS=$(CONFIG_ERC20_CONTRACT_ADDRESS) \
 	-DCONFIG_STATE_BLOCK_DEVICE='$(CONFIG_STATE_BLOCK_DEVICE)'
-INCS := -I/opt/riscv/kernel/work/linux-headers/include
 LDFLAGS := -Wl,-O1,--sort-common,-z,relro,-z,now,--as-needed
 
 RPC_PROTOCOL=jsonrpc
@@ -37,9 +36,9 @@ MACHINE_FLAGS := \
 .PHONY: lint test stress-test clean format-lua
 
 honeypot: honeypot.cpp
-	$(CXX) $(CXXFLAGS) $(INCS) $(LDFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $<
 
-rootfs.tar: Dockerfile honeypot.cpp
+rootfs.tar: Dockerfile honeypot.cpp dep
 	docker buildx build --progress plain --output type=tar,dest=$@ .
 
 rootfs.ext2: rootfs.tar
@@ -75,3 +74,13 @@ format-lua:
 		*.lua \
 		cartesi-testlib/encode-utils.lua \
 		cartesi-testlib/rolling-machine.lua
+
+dep:
+	mkdir -p dep
+
+downloads: dep
+	cat dependencies | tr -s ' ' | cut -d ' ' -f2,3 | xargs -n2 wget -c -O
+	cat dependencies | tr -s ' ' | cut -d ' ' -f1,2 | sha1sum -c
+
+depclean:
+	rm -rf dep
