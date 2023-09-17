@@ -9,7 +9,21 @@ import {
   readErc20,
   writeCartesiErc20Portal,
   writeCartesiInputBox,
+  watchCartesiInputBoxEvent,
 } from '../generated'
+
+import { useQuery } from '@urql/vue'
+import { computed } from 'vue'
+import { graphql } from '../gql'
+
+import { Client, provideClient, cacheExchange, fetchExchange } from '@urql/vue'
+
+const client = new Client({
+  url: import.meta.env.VITE_GRAPHQL_URL,
+  exchanges: [cacheExchange, fetchExchange],
+})
+
+provideClient(client)
 
 const account = getAccount()
 const tokens = ref({})
@@ -59,11 +73,42 @@ async function deposit(amount) {
       args: [env.VITE_DAPP_TOKEN_ADDR, env.VITE_DAPP_ADDR, 10000, "0x"],
   })
   console.log('txDepositHash', txDepositHash)
+
+  // get input index
+  const txInputIndex = await new Promise(function(resolve, reject) {
+    watchCartesiInputBoxEvent({
+      address: env.VITE_INPUT_BOX_ADDR,
+      eventName: 'InputAdded',
+    }, function(log) {
+      if (log[0].transactionHash == txDepositHash.hash) {
+        resolve(log[0].args.inputIndex)
+      }
+    })
+  })
+  console.log('txInputIndex', txInputIndex)
+
+  // wait transaction to complete
   const txDepositData = await waitForTransaction(txDepositHash)
   console.log('txDepositData', txDepositData)
 
+  // give a time for the node to process it
+  await new Promise(r => setTimeout(r, 10000))
+  console.log('waited')
+
+  // query its reports
+  const txReport = await client.query(graphql`
+query reportsByInput($inputIndex: Int!) {
+  input(index: $inputIndex) {
+    report(index: 0) {
+      payload
+    }
+  }
+}`, {inputIndex: parseInt(txInputIndex)}).toPromise()
+  console.log('txReport', txReport)
+
   // refresh wallet
   refresh()
+  console.log('refreshed')
 }
 
 async function withdraw_all() {
