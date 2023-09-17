@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
+    "codegen": "npx wagmi generate"
   },
   "dependencies": {
     "@cartesi/rollups": "^1.0.2",
@@ -20,11 +21,11 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.3.4",
-    "@wagmi/cli": "^1.5.0",
+    "@wagmi/cli": "^1.4.0",
     "vite": "^4.4.9"
   },
   "overrides": {
-    "@wagmi/cli" : {
+    "@wagmi/cli": {
       "esbuild": "^0.18.20"
     }
   }

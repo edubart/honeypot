@@ -1,6 +1,7 @@
 local cartesi_rolling_machine = require("cartesi-testlib.rolling-machine")
 local encode_utils = require("cartesi-testlib.encode-utils")
 local lester = require("luadeps.lester")
+local tohex = require("encoding").tohex
 local bint256 = require 'luadeps.bint'(256)
 local config = require 'config'
 local describe, it, expect = lester.describe, lester.it, lester.expect
@@ -61,13 +62,13 @@ describe("tests", function()
     it("should accept balance inspect", function()
         local res = rolling_machine:inspect_state({
             metadata = {msg_sender = config.ALICE_ERC20_ADDRESS},
-            payload = "BLCE"..config.ALICE_ERC20_ADDRESS
+            payload = "BLC/"..tohex(config.ALICE_ERC20_ADDRESS)
         }, true)
         local expected_res = {
             status = "accepted",
             vouchers = {},
             notices = {},
-            reports = {{payload=config.TOKEN_ERC20_ADDRESS..bint256.tobe(3)}},
+            reports = {{payload=[[{"]]..tohex(config.TOKEN_ERC20_ADDRESS)..[[":"]]..tohex(bint256.tobe(3))..[["}]]}},
         }
         expect.equal(res, expected_res)
     end)

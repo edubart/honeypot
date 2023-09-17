@@ -1,8 +1,10 @@
 local rollup = require 'rollup'
 local config = require 'config'
 local encoding = require 'encoding'
+local cjson = require 'cjson'
 local Wallet = require 'wallet'
 local tohex = encoding.tohex
+local fromhex = encoding.fromhex
 
 local function deposit_erc20(token, address, amount)
   print('[dapp] deposit_erc20', tohex(token), tohex(address), amount)
@@ -27,9 +29,9 @@ local function inspect_balance(address)
   local wallet = assert(Wallet.get(address), 'no wallet')
   local tokens = {}
   for token,amount in pairs(wallet.tokens) do
-    table.insert(tokens, token..amount:tobe())
+    tokens[tohex(token)] = tohex(amount:tobe())
   end
-  rollup.report(table.concat(tokens))
+  rollup.report(cjson.encode(tokens))
   return true
 end
 
@@ -47,8 +49,8 @@ end
 
 function rollup.inspect_state(data)
   local opcode, opdata = data:sub(1,4), data:sub(5)
-  if opcode == "BLCE" then -- balance
-    return inspect_balance(opdata)
+  if opcode == "BLC/" then -- balance
+    return inspect_balance(fromhex(opdata))
   end
   error('unknown inspect state request')
 end

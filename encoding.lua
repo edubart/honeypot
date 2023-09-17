@@ -2,7 +2,7 @@ local bint256 = require 'luadeps.bint'(256)
 local encoding = {}
 
 function encoding.fromhex(s)
-  local hexpart = assert(s:match'^0[xX]([0-9a-fA-F]+)$')
+  local hexpart = assert(s:match'^0[xX]([0-9a-fA-F]+)$', 'malformed hexadecimal data')
   return hexpart:gsub('..', function(x) return string.char(tonumber(x, 16)) end)
 end
 

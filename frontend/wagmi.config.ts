@@ -1,14 +1,10 @@
 import { defineConfig } from '@wagmi/cli'
-import { erc20ABI } from 'wagmi'
+import { erc, actions } from '@wagmi/cli/plugins'
 import { ICartesiDApp__factory, IERC20Portal__factory, IInputBox__factory } from '@cartesi/rollups'
 
-export default {
+export default defineConfig({
   out: 'src/generated.js',
   contracts: [
-    {
-      name: 'erc20',
-      abi: erc20ABI,
-    },
     {
       name: 'cartesiDapp',
       abi: ICartesiDApp__factory.abi,
@@ -22,5 +18,5 @@ export default {
       abi: IERC20Portal__factory.abi,
     },
   ],
-  plugins: []
-}
+  plugins: [erc(), actions()]
+})
