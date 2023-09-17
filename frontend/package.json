@@ -1,0 +1,20 @@
+{
+  "name": "dapp-playground",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@wagmi/core": "^1.4.2",
+    "@web3modal/wagmi": "^3.0.0-beta.2",
+    "viem": "^1.10.14",
+    "vue": "^3.3.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.3.4",
+    "vite": "^4.4.9"
+  }
+}
