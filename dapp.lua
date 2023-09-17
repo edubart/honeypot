@@ -1,51 +1,57 @@
+local cjson = require 'cjson'
 local rollup = require 'rollup'
 local config = require 'config'
 local encoding = require 'encoding'
 local Wallet = require 'wallet'
 local tohex = encoding.tohex
 
-local function deposit_erc20(token, sender, amount)
-  print('[dapp] deposit_erc20', tohex(token), tohex(sender), amount)
-  local wallet = Wallet.get_or_create(sender)
+local function deposit_erc20(token, address, amount)
+  print('[dapp] deposit_erc20', tohex(token), tohex(address), amount)
+  local wallet = Wallet.get_or_create(address)
   wallet:deposit(token, amount)
+  rollup.report(cjson.encode{ok=true})
   return true
 end
 
-local function withdraw_erc20(token, sender)
-  print('[dapp] withdraw_erc20', tohex(token), tohex(sender))
-  local wallet = assert(Wallet.get(sender), 'no wallet')
+local function withdraw_erc20(token, address)
+  print('[dapp] withdraw_erc20', tohex(token), tohex(address))
+  local wallet = assert(Wallet.get(address), 'no wallet')
   local amount = wallet:withdraw_all(token)
   assert(not amount:iszero(), 'no funds')
-  rollup.voucher(token, encoding.encode_erc20_transfer(sender, amount))
+  rollup.voucher(token, encoding.encode_erc20_transfer(address, amount))
+  rollup.report(cjson.encode{ok=true})
   return true
 end
 
-local function balance_erc20(token, sender)
-  print('[dapp] balance_erc20', tohex(token), tohex(sender))
-  local wallet = assert(Wallet.get(sender), 'no wallet')
-  local balance = wallet:balance(token)
-  rollup.report(balance:tobe())
+local function inspect_balance(address)
+  print('[dapp] balance', tohex(address))
+  local wallet = assert(Wallet.get(address), 'no wallet')
+  local tokens = {}
+  for token,amount in pairs(wallet.tokens) do
+    tokens[tohex(token)] = tostring(amount)
+  end
+  rollup.report(cjson.encode({tokens=tokens}))
   return true
 end
 
 function rollup.advance_state(data, sender)
-  local opcode, opdata = data:sub(1,2), data:sub(3)
   if sender == config.PORTAL_ERC20_ADDRESS then -- deposit
     return deposit_erc20(encoding.decode_erc20_deposit(data))
-  elseif opcode == 'WD' and #opdata == 20 then -- withdraw
-    return withdraw_erc20(opdata, sender)
   else
-    error('unknown advance state request')
+    local input = cjson.decode(data)
+    if input.op == "widthdraw" then -- withdraw
+      return withdraw_erc20(encoding.fromhex(input.address), sender)
+    end
   end
+  error('unknown advance state request')
 end
 
 function rollup.inspect_state(data)
-  local opcode, opdata = data:sub(1,2), data:sub(3)
-  if opcode == 'BL' and #opdata == 40 then -- balance
-    return balance_erc20(opdata:sub(21,40), opdata:sub(1,20))
-  else
-    error('unknown inspect state request')
+  local query = cjson.decode(data)
+  if query.op == "balance" then -- balance
+    return inspect_balance(encoding.fromhex(query.address))
   end
+  error('unknown inspect state request')
 end
 
 rollup.run()

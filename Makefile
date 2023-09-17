@@ -53,5 +53,9 @@ quick-test:
 live-dev:
 	luamon -e lua -x "make quick-test"
 
+run-node:
+	sunodo build
+	sunodo run
+
 .PHONY: all rootfs image clean test shell lint
 
