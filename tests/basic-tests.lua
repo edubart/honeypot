@@ -1,7 +1,7 @@
 local cartesi_rolling_machine = require("cartesi-testlib.rolling-machine")
 local encode_utils = require("cartesi-testlib.encode-utils")
-local tohex = require("encoding").tohex
 local lester = require("luadeps.lester")
+local bint256 = require 'luadeps.bint'(256)
 local config = require 'config'
 local describe, it, expect = lester.describe, lester.it, lester.expect
 
@@ -31,7 +31,7 @@ describe("tests", function()
             status = "accepted",
             vouchers = {},
             notices = {},
-            reports = {{payload=[[{"ok":true}]]}},
+            reports = {{payload="OK"}},
         }
         expect.equal(res, expected_res)
     end)
@@ -52,7 +52,7 @@ describe("tests", function()
             status = "accepted",
             vouchers = {},
             notices = {},
-            reports = {{payload=[[{"ok":true}]]}},
+            reports = {{payload="OK"}},
         }
         expect.equal(res, expected_res)
     end)
@@ -73,7 +73,7 @@ describe("tests", function()
             status = "accepted",
             vouchers = {},
             notices = {},
-            reports = {{payload=[[{"ok":true}]]}},
+            reports = {{payload="OK"}},
         }
         expect.equal(res, expected_res)
     end)
@@ -83,13 +83,13 @@ describe("tests", function()
             metadata = {
                 msg_sender = config.ALICE_ERC20_ADDRESS,
             },
-            payload = [[{"op":"balance","address":"]]..tohex(config.ALICE_ERC20_ADDRESS)..[["}]]
+            payload = "BLCE"..config.ALICE_ERC20_ADDRESS
         }, true)
         local expected_res = {
             status = "accepted",
             vouchers = {},
             notices = {},
-            reports = {{payload=[[{"tokens":{"]]..tohex(config.TOKEN_ERC20_ADDRESS)..[[":"3"}}]]}},
+            reports = {{payload=config.TOKEN_ERC20_ADDRESS..bint256.tobe(3)}},
         }
         expect.equal(res, expected_res)
     end)
@@ -99,7 +99,7 @@ describe("tests", function()
             metadata = {
                 msg_sender = config.ALICE_ERC20_ADDRESS,
             },
-            payload = [[{"op":"widthdraw","address":"]]..tohex(config.TOKEN_ERC20_ADDRESS)..[["}]]
+            payload = "WTDW"..config.TOKEN_ERC20_ADDRESS
         }, true)
         local expected_res = {
             status = "accepted",
@@ -113,7 +113,7 @@ describe("tests", function()
                 },
             },
             notices = {},
-            reports = {{payload=[[{"ok":true}]]}},
+            reports = {{payload="OK"}},
         }
         expect.equal(res, expected_res)
     end)
@@ -123,13 +123,13 @@ describe("tests", function()
             metadata = {
                 msg_sender = config.ALICE_ERC20_ADDRESS,
             },
-            payload = [[{"op":"widthdraw","address":"]]..tohex(config.TOKEN_ERC20_ADDRESS)..[["}]]
+            payload = "WTDW"..config.TOKEN_ERC20_ADDRESS
         }, true)
         local expected_res = {
             status = "rejected",
             vouchers = {},
             notices = {},
-            reports = {{payload=[[{"error":"no funds"}]]}},
+            reports = {{payload="ERR:no funds"}},
         }
         expect.equal(res, expected_res)
     end)

@@ -95,7 +95,7 @@ function rollup.run()
         finish.status = ret
       else
         io.stderr:write("request failed: ", ret.errmsg_with_traceback, "\n")
-        rollup.report(cjson.encode{error=ret.errmsg})
+        rollup.report("ERR:"..ret.errmsg)
         finish.status = 'reject'
       end
     elseif code == 202 then
