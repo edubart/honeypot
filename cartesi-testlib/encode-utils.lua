@@ -43,7 +43,7 @@ function encode_utils.encode_erc20_address(v)
 end
 
 function encode_utils.encode_erc20_deposit(deposit)
-    local payload = (deposit.successful and "\x01" or "\x00")
+    local payload = (deposit.successful ~= false and "\x01" or "\x00")
         .. encode_utils.encode_erc20_address(deposit.contract_address)
         .. encode_utils.encode_erc20_address(deposit.sender_address)
         .. encode_utils.encode_be256(deposit.amount)
