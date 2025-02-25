@@ -91,11 +91,11 @@ static bool rollup_emit_voucher(cmt_rollup_t *rollup, const erc20_address &addre
 // For every new request, reads an input POD and call backs its respective advance or inspect state handler.
 template <typename STATE, typename ADVANCE_STATE, typename INSPECT_STATE>
 [[nodiscard]]
-static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, bool accept_previous_request,
-    ADVANCE_STATE advance_state, INSPECT_STATE inspect_state) {
+static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STATE advance_state,
+    INSPECT_STATE inspect_state) {
     // Finish previous request and wait for the next request.
     cmt_rollup_finish_t finish{};
-    finish.accept_previous_request = accept_previous_request;
+    finish.accept_previous_request = true;
     int err = cmt_rollup_finish(rollup, &finish);
     if (err < 0) {
         std::ignore = fprintf(stderr, "[dapp] unable to perform rollup finish: %s\n", strerror(-err));
@@ -128,21 +128,6 @@ static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, bool
     // Invalid request
     std::ignore = fprintf(stderr, "[dapp] invalid request type\n");
     return false;
-}
-
-// Process rollup requests forever.
-template <typename STATE, typename ADVANCE_STATE, typename INSPECT_STATE>
-[[noreturn]]
-static void rollup_request_loop(cmt_rollup_t *rollup, STATE *state, ADVANCE_STATE advance_state,
-    INSPECT_STATE inspect_state) {
-    // Rollup device requires that we initialize the first previous request as accepted.
-    bool accept_previous_request = true;
-    // Request loop, should loop forever.
-    while (true) {
-        accept_previous_request =
-            rollup_process_next_request(rollup, state, accept_previous_request, advance_state, inspect_state);
-    }
-    // Unreachable code.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -332,12 +317,6 @@ static bool honeypot_withdraw(cmt_rollup_t *rollup, honeypot_state *state) {
     return true;
 }
 
-// Process a inspect balance request.
-static bool honeypot_inspect_balance(cmt_rollup_t *rollup, honeypot_state *state) {
-    std::ignore = fprintf(stderr, "[dapp] inspect balance request\n");
-    return rollup_emit_report(rollup, honeypot_inspect_report{state->balance});
-}
-
 // Process advance state requests.
 static bool honeypot_advance_state(cmt_rollup_t *rollup, honeypot_state *state, const cmt_rollup_advance &input) {
     // Deposit?
@@ -357,14 +336,10 @@ static bool honeypot_advance_state(cmt_rollup_t *rollup, honeypot_state *state, 
 }
 
 // Process inspect state queries.
-static bool honeypot_inspect_state(cmt_rollup_t *rollup, honeypot_state *state, const cmt_rollup_inspect &query) {
-    // Inspect balance?
-    if (query.payload.length == 0) {
-        return honeypot_inspect_balance(rollup, state);
-    }
-    // Invalid query.
-    std::ignore = fprintf(stderr, "[dapp] invalid inspect state query\n");
-    return false;
+static bool honeypot_inspect_state(cmt_rollup_t *rollup, honeypot_state *state, const cmt_rollup_inspect & /*query*/) {
+    // Inspect balance
+    std::ignore = fprintf(stderr, "[dapp] inspect balance request\n");
+    return rollup_emit_report(rollup, honeypot_inspect_report{state->balance});
 }
 
 // Application main.
@@ -383,6 +358,9 @@ int main() {
         return -1;
     }
     // Process requests forever.
-    rollup_request_loop(&rollup, state, honeypot_advance_state, honeypot_inspect_state);
+    while (true) {
+        // Continue, despite request being rejected or not.
+        std::ignore = rollup_process_next_request(&rollup, state, honeypot_advance_state, honeypot_inspect_state);
+    }
     // Unreachable code, return is intentionally omitted.
 }
