@@ -4,8 +4,8 @@
 #include <cstdint>
 
 #include <cerrno>  // errno
-#include <cstdio>  // fprintf/stderr
-#include <cstring> // strerror/strlen/memcmp/memcpy
+#include <cstdio>  // std::fprintf/stderr
+#include <cstring> // strerror/std::memcmp/std::memcpy
 
 #include <array> // std::array
 #include <tuple> // std::ignore
@@ -22,14 +22,16 @@ extern "C" {
 
 #include "honeypot-config.hpp"
 
+namespace {
+
 ////////////////////////////////////////////////////////////////////////////////
 // ERC-20 address type.
 
 using erc20_address = cmt_abi_address_t;
 
 // Compare two ERC-20 addresses.
-static bool operator==(const erc20_address &a, const erc20_address &b) {
-    return memcmp(&a, &b, sizeof(erc20_address)) == 0;
+bool operator==(const erc20_address &a, const erc20_address &b) {
+    return std::memcmp(&a, &b, sizeof(erc20_address)) == 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,7 +42,7 @@ using be256 = std::array<uint8_t, 32>;
 // Adds `a` and `b` and store in `res`.
 // Returns true when there is no arithmetic overflow, false otherwise.
 [[nodiscard]]
-static bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
+bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
     uint16_t carry = 0;
     for (size_t i = 0; i < res.size(); ++i) {
         const size_t j = res.size() - i - 1;
@@ -54,17 +56,24 @@ static bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
 ////////////////////////////////////////////////////////////////////////////////
 // Rollup utilities.
 
-// Emit a report POD into rollup device.
 template <typename T>
 [[nodiscard]]
-static bool rollup_emit_report(cmt_rollup_t *rollup, const T &payload) {
-    const cmt_abi_bytes_t payload_bytes = {
+constexpr cmt_abi_bytes_t payload_to_bytes(const T &payload) {
+    cmt_abi_bytes_t payload_bytes = {
         .length = sizeof(T),
         .data = const_cast<T *>(&payload) // NOLINT(cppcoreguidelines-pro-type-const-cast)
     };
+    return payload_bytes;
+}
+
+// Emit a report POD into rollup device.
+template <typename T>
+[[nodiscard]]
+bool rollup_emit_report(cmt_rollup_t *rollup, const T &payload) {
+    const cmt_abi_bytes_t payload_bytes = payload_to_bytes(payload);
     const int err = cmt_rollup_emit_report(rollup, &payload_bytes);
     if (err < 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to emit report: %s\n", strerror(-err));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to emit report: %s\n", std::strerror(-err));
         return false;
     }
     return true;
@@ -73,15 +82,12 @@ static bool rollup_emit_report(cmt_rollup_t *rollup, const T &payload) {
 // Emit a voucher POD into rollup device.
 template <typename T>
 [[nodiscard]]
-static bool rollup_emit_voucher(cmt_rollup_t *rollup, const erc20_address &address, const T &payload) {
-    const cmt_abi_bytes_t payload_bytes = {
-        .length = sizeof(T),
-        .data = const_cast<T *>(&payload) // NOLINT(cppcoreguidelines-pro-type-const-cast)
-    };
+bool rollup_emit_voucher(cmt_rollup_t *rollup, const erc20_address &address, const T &payload) {
+    const cmt_abi_bytes_t payload_bytes = payload_to_bytes(payload);
     const cmt_abi_u256_t wei{}; // Transfer 0 Wei
     const int err = cmt_rollup_emit_voucher(rollup, &address, &wei, &payload_bytes, nullptr);
     if (err < 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to emit voucher: %s\n", strerror(-err));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to emit voucher: %s\n", std::strerror(-err));
         return false;
     }
     return true;
@@ -91,14 +97,14 @@ static bool rollup_emit_voucher(cmt_rollup_t *rollup, const erc20_address &addre
 // For every new request, reads an input POD and call backs its respective advance or inspect state handler.
 template <typename STATE, typename ADVANCE_STATE, typename INSPECT_STATE>
 [[nodiscard]]
-static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STATE advance_state,
+bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STATE advance_state,
     INSPECT_STATE inspect_state) {
     // Finish previous request and wait for the next request.
     cmt_rollup_finish_t finish{};
     finish.accept_previous_request = true;
     int err = cmt_rollup_finish(rollup, &finish);
     if (err < 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to perform rollup finish: %s\n", strerror(-err));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to perform rollup finish: %s\n", std::strerror(-err));
         return false;
     }
     // Advance state?
@@ -107,7 +113,7 @@ static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVA
         cmt_rollup_advance_t advance{};
         err = cmt_rollup_read_advance_state(rollup, &advance);
         if (err < 0) {
-            std::ignore = fprintf(stderr, "[dapp] unable to read advance state: %s\n", strerror(-err));
+            std::ignore = std::fprintf(stderr, "[dapp] unable to read advance state: %s\n", std::strerror(-err));
             return false;
         }
         // Call advance state handler.
@@ -119,14 +125,14 @@ static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVA
         cmt_rollup_inspect_t inspect{};
         err = cmt_rollup_read_inspect_state(rollup, &inspect);
         if (err < 0) {
-            std::ignore = fprintf(stderr, "[dapp] unable to read inspect state: %s\n", strerror(-err));
+            std::ignore = std::fprintf(stderr, "[dapp] unable to read inspect state: %s\n", std::strerror(-err));
             return false;
         }
         // Call inspect state handler.
         return inspect_state(rollup, state, inspect);
     }
     // Invalid request
-    std::ignore = fprintf(stderr, "[dapp] invalid request type\n");
+    std::ignore = std::fprintf(stderr, "[dapp] invalid request type\n");
     return false;
 }
 
@@ -134,7 +140,8 @@ static bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVA
 // ERC-20 encoding utilities.
 
 // Bytecode for solidity 'transfer(address,uint256)' in solidity.
-#define TRANSFER_FUNCTION_SELECTOR_BYTES {0xa9, 0x05, 0x9c, 0xbb}
+#define TRANSFER_FUNCTION_SELECTOR_BYTES                                                                               \
+    {0xa9, 0x05, 0x9c, 0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 enum erc20_deposit_status : uint8_t {
     ERC20_DEPOSIT_FAILED = 0,
@@ -142,7 +149,7 @@ enum erc20_deposit_status : uint8_t {
 };
 
 // Payload encoding for ERC-20 deposits.
-struct [[gnu::packed]] erc20_deposit_payload {
+struct [[gnu::packed]] erc20_deposit {
     uint8_t status;
     erc20_address token_address;
     erc20_address sender_address;
@@ -150,20 +157,19 @@ struct [[gnu::packed]] erc20_deposit_payload {
 };
 
 // Payload encoding for ERC-20 transfers.
-struct [[gnu::packed]] erc20_transfer_payload {
+struct [[gnu::packed]] erc20_transfer {
     std::array<uint8_t, 16> bytecode;
     erc20_address destination;
     be256 amount;
 };
 
 // Encodes a ERC-20 transfer of amount to destination address.
-static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, be256 amount) {
-    erc20_transfer_payload payload{};
-
-    payload.bytecode = TRANSFER_FUNCTION_SELECTOR_BYTES;
-    // The last 12 bytes in bytecode should be zeros.
-    payload.destination = destination;
-    payload.amount = amount;
+erc20_transfer encode_erc20_transfer(erc20_address destination, be256 amount) {
+    erc20_transfer payload{
+        .bytecode = TRANSFER_FUNCTION_SELECTOR_BYTES,
+        .destination = destination,
+        .amount = amount,
+    };
     return payload;
 }
 
@@ -173,23 +179,23 @@ static erc20_transfer_payload encode_erc20_transfer(erc20_address destination, b
 // Load dapp state from disk.
 template <typename STATE>
 [[nodiscard]]
-static STATE *dapp_load_state(const char *block_device) {
+STATE *dapp_load_state(const char *block_device) {
     // Open the dapp state block device.
     // Note that we open but never close it, we intentionally let the OS do this automatically on exit.
     const int state_fd = open(block_device, O_RDWR);
     if (state_fd < 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to open state block device: %s\n", strerror(errno));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to open state block device: %s\n", std::strerror(errno));
         return nullptr;
     }
     // Check if the block device size is big enough.
     const auto size = lseek(state_fd, 0, SEEK_END);
     if (size < 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to seek state block device: %s\n", strerror(errno));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to seek state block device: %s\n", std::strerror(errno));
         close(state_fd);
         return nullptr;
     }
     if (static_cast<size_t>(size) < sizeof(STATE)) {
-        std::ignore = fprintf(stderr, "[dapp] state block device size is too small\n");
+        std::ignore = std::fprintf(stderr, "[dapp] state block device size is too small\n");
         close(state_fd);
         return nullptr;
     }
@@ -197,13 +203,14 @@ static STATE *dapp_load_state(const char *block_device) {
     // Note that we call mmap() but never call munmap(), we intentionally let the OS automatically do this on exit.
     void *mem = mmap(nullptr, sizeof(STATE), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, state_fd, 0);
     if (mem == MAP_FAILED) {
-        std::ignore = fprintf(stderr, "[dapp] unable to map state block device to memory: %s\n", strerror(errno));
+        std::ignore =
+            std::fprintf(stderr, "[dapp] unable to map state block device to memory: %s\n", std::strerror(errno));
         close(state_fd);
         return nullptr;
     }
     // After the mmap() call, the file descriptor can be closed immediately without invalidating the mapping.
     if (close(state_fd) < 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to close state block device: %s\n", strerror(errno));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to close state block device: %s\n", std::strerror(errno));
         return nullptr;
     }
     return reinterpret_cast<STATE *>(mem); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -211,100 +218,91 @@ static STATE *dapp_load_state(const char *block_device) {
 
 // Flush dapp state to disk.
 template <typename STATE>
-static void dapp_flush_state(STATE *state) {
+void dapp_flush_state(STATE *state) {
     // Flushes state changes made into memory using mmap(2) back to the filesystem.
     if (msync(state, sizeof(STATE), MS_SYNC) < 0) {
         // Cannot recover from failure here, but report the error if any.
-        std::ignore = fprintf(stderr, "[dapp] unable to flush state from memory to disk: %s\n", strerror(errno));
+        std::ignore =
+            std::fprintf(stderr, "[dapp] unable to flush state from memory to disk: %s\n", std::strerror(errno));
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Honeypot application.
 
-static constexpr erc20_address ERC20_PORTAL_ADDRESS = {CONFIG_ERC20_PORTAL_ADDRESS};
-static constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {CONFIG_ERC20_WITHDRAWAL_ADDRESS};
-static constexpr erc20_address ERC20_TOKEN_ADDRESS = {CONFIG_ERC20_TOKEN_ADDRESS};
+constexpr erc20_address ERC20_PORTAL_ADDRESS = {CONFIG_ERC20_PORTAL_ADDRESS};
+constexpr erc20_address ERC20_WITHDRAWAL_ADDRESS = {CONFIG_ERC20_WITHDRAWAL_ADDRESS};
+constexpr erc20_address ERC20_TOKEN_ADDRESS = {CONFIG_ERC20_TOKEN_ADDRESS};
 
 // Status code sent in as reports for well formed advance requests.
-enum honeypot_advance_status : uint8_t {
-    HONEYPOT_STATUS_SUCCESS = 0,
-    HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED,
-    HONEYPOT_STATUS_DEPOSIT_INVALID_TOKEN,
-    HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW,
-    HONEYPOT_STATUS_WITHDRAW_NO_FUNDS,
-    HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED,
-    HONEYPOT_STATUS_INVALID_REQUEST
-};
-
-// POD for advance inputs.
-struct [[gnu::packed]] honeypot_advance_input {
-    erc20_deposit_payload deposit{};
-};
-
-// POD for inspect queries.
-struct [[gnu::packed]] honeypot_inspect_query {
-    // No data needed for inspect requests.
+enum advance_status : uint8_t {
+    ADVANCE_STATUS_SUCCESS = 0,
+    ADVANCE_STATUS_DEPOSIT_TRANSFER_FAILED,
+    ADVANCE_STATUS_DEPOSIT_INVALID_TOKEN,
+    ADVANCE_STATUS_DEPOSIT_BALANCE_OVERFLOW,
+    ADVANCE_STATUS_WITHDRAW_NO_FUNDS,
+    ADVANCE_STATUS_WITHDRAW_VOUCHER_FAILED,
+    ADVANCE_STATUS_INVALID_REQUEST
 };
 
 // POD for advance reports.
-struct [[gnu::packed]] honeypot_advance_report {
-    honeypot_advance_status status{};
+struct [[gnu::packed]] advance_report {
+    advance_status status{};
 };
 
 // POD for inspect reports.
-struct [[gnu::packed]] honeypot_inspect_report {
+struct [[gnu::packed]] inspect_report {
     be256 balance{};
 };
 
 // POD for dapp state.
-struct [[gnu::packed]] honeypot_state {
+struct [[gnu::packed]] dapp_state {
     be256 balance{};
 };
 
-// Process a ERC-20 deposit request.
-static bool honeypot_deposit(cmt_rollup_t *rollup, honeypot_state *state, const erc20_deposit_payload &deposit) {
+// Process an ERC-20 deposit request.
+bool process_deposit(cmt_rollup_t *rollup, dapp_state *state, const erc20_deposit &deposit) {
     // Consider only successful ERC-20 deposits.
     if (deposit.status != ERC20_DEPOSIT_SUCCESSFUL) {
-        std::ignore = fprintf(stderr, "[dapp] deposit erc20 transfer failed\n");
-        std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_TRANSFER_FAILED});
+        std::ignore = std::fprintf(stderr, "[dapp] deposit erc20 transfer failed\n");
+        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_DEPOSIT_TRANSFER_FAILED});
         return false;
     }
     // Check token address.
     if (deposit.token_address != ERC20_TOKEN_ADDRESS) {
-        std::ignore = fprintf(stderr, "[dapp] invalid deposit token address\n");
-        std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_INVALID_TOKEN});
+        std::ignore = std::fprintf(stderr, "[dapp] invalid deposit token address\n");
+        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_DEPOSIT_INVALID_TOKEN});
         return false;
     }
     // Add deposit amount to balance.
     be256 new_balance{};
     if (!be256_checked_add(new_balance, state->balance, deposit.amount)) {
-        std::ignore = fprintf(stderr, "[dapp] deposit balance overflow\n");
-        std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_DEPOSIT_BALANCE_OVERFLOW});
+        std::ignore = std::fprintf(stderr, "[dapp] deposit balance overflow\n");
+        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_DEPOSIT_BALANCE_OVERFLOW});
         return false;
     }
     state->balance = new_balance;
     // Flush dapp state to disk, so we can inspect its state from outside.
     dapp_flush_state(state);
     // Report that operation succeed.
-    std::ignore = fprintf(stderr, "[dapp] successful deposit\n");
-    std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
+    std::ignore = std::fprintf(stderr, "[dapp] successful deposit\n");
+    std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_SUCCESS});
     return true;
 }
 
 // Process a ERC-20 withdraw request.
-static bool honeypot_withdraw(cmt_rollup_t *rollup, honeypot_state *state) {
+bool process_withdraw(cmt_rollup_t *rollup, dapp_state *state) {
     // Report an error if the balance is empty.
     if (state->balance == be256{}) {
-        std::ignore = fprintf(stderr, "[dapp] no funds to withdraw\n");
-        std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_NO_FUNDS});
+        std::ignore = std::fprintf(stderr, "[dapp] no funds to withdraw\n");
+        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_WITHDRAW_NO_FUNDS});
         return false;
     }
     // Issue a voucher with the entire balance.
-    const erc20_transfer_payload transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, state->balance);
+    const erc20_transfer transfer_payload = encode_erc20_transfer(ERC20_WITHDRAWAL_ADDRESS, state->balance);
     if (!rollup_emit_voucher(rollup, ERC20_TOKEN_ADDRESS, transfer_payload)) {
-        std::ignore = fprintf(stderr, "[dapp] unable to issue withdraw voucher\n");
-        std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_WITHDRAW_VOUCHER_FAILED});
+        std::ignore = std::fprintf(stderr, "[dapp] unable to issue withdraw voucher\n");
+        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_WITHDRAW_VOUCHER_FAILED});
         return false;
     }
     // Only zero balance after successful voucher emission.
@@ -312,55 +310,58 @@ static bool honeypot_withdraw(cmt_rollup_t *rollup, honeypot_state *state) {
     // Flush dapp state to disk, so we can inspect its state from outside.
     dapp_flush_state(state);
     // Report that operation succeed.
-    std::ignore = fprintf(stderr, "[dapp] successful withdrawal\n");
-    std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_SUCCESS});
+    std::ignore = std::fprintf(stderr, "[dapp] successful withdrawal\n");
+    std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_SUCCESS});
     return true;
 }
 
 // Process advance state requests.
-static bool honeypot_advance_state(cmt_rollup_t *rollup, honeypot_state *state, const cmt_rollup_advance &input) {
+bool advance_state(cmt_rollup_t *rollup, dapp_state *state, const cmt_rollup_advance &input) {
     // Deposit?
-    if (input.msg_sender == ERC20_PORTAL_ADDRESS && input.payload.length == sizeof(erc20_deposit_payload)) {
-        erc20_deposit_payload deposit{};
-        memcpy(&deposit, input.payload.data, sizeof(erc20_deposit_payload));
-        return honeypot_deposit(rollup, state, deposit);
+    if (input.msg_sender == ERC20_PORTAL_ADDRESS && input.payload.length == sizeof(erc20_deposit)) {
+        erc20_deposit deposit{};
+        std::memcpy(&deposit, input.payload.data, sizeof(erc20_deposit));
+        return process_deposit(rollup, state, deposit);
     }
     // Withdraw?
     if (input.msg_sender == ERC20_WITHDRAWAL_ADDRESS && input.payload.length == 0) {
-        return honeypot_withdraw(rollup, state);
+        return process_withdraw(rollup, state);
     }
     // Invalid request.
-    std::ignore = fprintf(stderr, "[dapp] invalid advance state request\n");
-    std::ignore = rollup_emit_report(rollup, honeypot_advance_report{HONEYPOT_STATUS_INVALID_REQUEST});
+    std::ignore = std::fprintf(stderr, "[dapp] invalid advance state request\n");
+    std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_INVALID_REQUEST});
     return false;
 }
 
 // Process inspect state queries.
-static bool honeypot_inspect_state(cmt_rollup_t *rollup, honeypot_state *state, const cmt_rollup_inspect & /*query*/) {
-    // Inspect balance
-    std::ignore = fprintf(stderr, "[dapp] inspect balance request\n");
-    return rollup_emit_report(rollup, honeypot_inspect_report{state->balance});
+bool inspect_state(cmt_rollup_t *rollup, dapp_state *state, const cmt_rollup_inspect & /*query*/) {
+    // Inspect balance.
+    std::ignore = std::fprintf(stderr, "[dapp] inspect balance request\n");
+    return rollup_emit_report(rollup, inspect_report{state->balance});
 }
+
+}; // anonymous namespace
 
 // Application main.
 int main() {
     cmt_rollup_t rollup{};
     // Load dapp state from disk.
-    auto *state = dapp_load_state<honeypot_state>(CONFIG_STATE_BLOCK_DEVICE);
+    auto *state = dapp_load_state<dapp_state>(CONFIG_STATE_BLOCK_DEVICE);
     if (state == nullptr) {
-        std::ignore = fprintf(stderr, "[dapp] unable to load dapp state\n");
+        std::ignore = std::fprintf(stderr, "[dapp] unable to load dapp state\n");
         return -1;
     }
     // Initialize rollup device.
     const int err = cmt_rollup_init(&rollup);
     if (err != 0) {
-        std::ignore = fprintf(stderr, "[dapp] unable to initialize rollup device: %s\n", strerror(-err));
+        std::ignore = std::fprintf(stderr, "[dapp] unable to initialize rollup device: %s\n", std::strerror(-err));
         return -1;
     }
     // Process requests forever.
     while (true) {
-        // Continue, despite request being rejected or not.
-        std::ignore = rollup_process_next_request(&rollup, state, honeypot_advance_state, honeypot_inspect_state);
+        // Always continue, despite request failing or not.
+        std::fprintf(stderr, "[dapp] waiting next request...\n");
+        std::ignore = rollup_process_next_request(&rollup, state, advance_state, inspect_state);
     }
     // Unreachable code, return is intentionally omitted.
 }
