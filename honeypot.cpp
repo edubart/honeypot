@@ -107,33 +107,35 @@ bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STA
         std::ignore = std::fprintf(stderr, "[dapp] unable to perform rollup finish: %s\n", std::strerror(-err));
         return false;
     }
-    // Advance state?
-    if (finish.next_request_type == HTIF_YIELD_REASON_ADVANCE) {
-        // Read the input.
-        cmt_rollup_advance_t advance{};
-        err = cmt_rollup_read_advance_state(rollup, &advance);
-        if (err < 0) {
-            std::ignore = std::fprintf(stderr, "[dapp] unable to read advance state: %s\n", std::strerror(-err));
+    // Handle request
+    switch (finish.next_request_type) {
+        case HTIF_YIELD_REASON_ADVANCE: { // Advance state.
+            // Read the input.
+            cmt_rollup_advance_t advance{};
+            err = cmt_rollup_read_advance_state(rollup, &advance);
+            if (err < 0) {
+                std::ignore = std::fprintf(stderr, "[dapp] unable to read advance state: %s\n", std::strerror(-err));
+                return false;
+            }
+            // Call advance state handler.
+            return advance_state(rollup, state, advance);
+        }
+        case HTIF_YIELD_REASON_INSPECT: { // Inspect state.
+            // Read the query.
+            cmt_rollup_inspect_t inspect{};
+            err = cmt_rollup_read_inspect_state(rollup, &inspect);
+            if (err < 0) {
+                std::ignore = std::fprintf(stderr, "[dapp] unable to read inspect state: %s\n", std::strerror(-err));
+                return false;
+            }
+            // Call inspect state handler.
+            return inspect_state(rollup, state, inspect);
+        }
+        default: { // Invalid request.
+            std::ignore = std::fprintf(stderr, "[dapp] invalid request type\n");
             return false;
         }
-        // Call advance state handler.
-        return advance_state(rollup, state, advance);
     }
-    // Inspect state?
-    if (finish.next_request_type == HTIF_YIELD_REASON_INSPECT) {
-        // Read the query.
-        cmt_rollup_inspect_t inspect{};
-        err = cmt_rollup_read_inspect_state(rollup, &inspect);
-        if (err < 0) {
-            std::ignore = std::fprintf(stderr, "[dapp] unable to read inspect state: %s\n", std::strerror(-err));
-            return false;
-        }
-        // Call inspect state handler.
-        return inspect_state(rollup, state, inspect);
-    }
-    // Invalid request
-    std::ignore = std::fprintf(stderr, "[dapp] invalid request type\n");
-    return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -360,7 +362,7 @@ int main() {
     // Process requests forever.
     while (true) {
         // Always continue, despite request failing or not.
-        std::fprintf(stderr, "[dapp] waiting next request...\n");
+        std::ignore = std::fprintf(stderr, "[dapp] waiting next request...\n");
         std::ignore = rollup_process_next_request(&rollup, state, advance_state, inspect_state);
     }
     // Unreachable code, return is intentionally omitted.
