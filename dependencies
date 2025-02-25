@@ -1,3 +1,0 @@
-2edb9a874dfff2e9ce33829ac3f71cc786467ecb  dep/init                  https://raw.githubusercontent.com/cartesi/machine-emulator-tools/feature/new-init/skel/sbin/init
-9008fb56d07534bc18695c7b389face50cd7734a  dep/linux-libc-dev.deb    https://github.com/cartesi/image-kernel/releases/download/v0.17.0/linux-libc-dev-5.15.63-ctsi-2-v0.17.0.deb
-8d517822d0e0a4b38ae414d30552e6399c9c7e96  dep/linux.bin             https://github.com/cartesi/image-kernel/releases/download/v0.17.0/linux-5.15.63-ctsi-2-v0.17.0.bin

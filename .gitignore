@@ -1,7 +1,6 @@
-.sunodo
-.clang-format
-snapshot
-rootfs.ext2
-rootfs.tar
+*.ext2
+*.tar
+*.bin
 honeypot
-dep
+.cartesi
+/snapshot

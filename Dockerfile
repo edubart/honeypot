@@ -1,34 +1,43 @@
 ################################
-# Stage 1 (compile)
-FROM --platform=linux/riscv64 riscv64/ubuntu:22.04 as builder
+# honeypot builder
+FROM --platform=linux/riscv64 riscv64/ubuntu:24.04 as builder
 
-# Install dependencies
+# Install build essential
 RUN apt-get update
-RUN apt-get install -y --no-install-recommends build-essential clang-tidy
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        clang-tidy
 
-# Install linux headers
-COPY dep/linux-libc-dev.deb /root/linux-libc-dev.deb
-RUN dpkg -i /root/linux-libc-dev.deb
+# Install libcmt
+ARG MACHINE_EMULATOR_TOOLS_VERSION=0.16.1
+ADD https://github.com/cartesi/machine-guest-tools/releases/download/v${MACHINE_EMULATOR_TOOLS_VERSION}/libcmt-dev-v${MACHINE_EMULATOR_TOOLS_VERSION}.deb /tmp/
+RUN dpkg -i /tmp/libcmt-dev-v${MACHINE_EMULATOR_TOOLS_VERSION}.deb
 
 # Compile
 WORKDIR /home/dapp
 COPY Makefile .
 COPY honeypot.cpp .
-RUN make lint
+COPY honeypot-config.hpp .
+ENV SOURCE_DATE_EPOCH=0
 RUN make
 
 ################################
-# Stage 2 (final rootfs)
-FROM --platform=linux/riscv64 riscv64/ubuntu:22.04
+# rootfs builder
+FROM --platform=linux/riscv64 riscv64/ubuntu:24.04
 
 # Install dependencies
-RUN apt-get update
-RUN apt-get install -y --no-install-recommends busybox-static=1:1.30.1-7ubuntu3
-RUN rm -rf /var/lib/apt/lists/* /var/log/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        busybox-static && \
+    rm -rf /var/lib/apt/lists/* /var/log/* /var/cache/*
 
-# Install init
-RUN mkdir -p /opt/cartesi/bin
-COPY --chmod=755 dep/init /opt/cartesi/bin/init
+# Install guest tools
+ARG MACHINE_EMULATOR_TOOLS_VERSION=0.16.1
+ADD https://github.com/cartesi/machine-emulator-tools/releases/download/v${MACHINE_EMULATOR_TOOLS_VERSION}/machine-emulator-tools-v${MACHINE_EMULATOR_TOOLS_VERSION}.deb /tmp/
+RUN dpkg -i /tmp/machine-emulator-tools-v${MACHINE_EMULATOR_TOOLS_VERSION}.deb
+RUN mkdir -p /etc/cartesi-init.d && \
+    echo "chown dapp:dapp /dev/pmem1" > /etc/cartesi-init.d/dapp-state && \
+    chmod 755 /etc/cartesi-init.d/dapp-state
 
 # Install honeypot
 WORKDIR /home/dapp
