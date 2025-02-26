@@ -43,19 +43,57 @@ function encode_utils.encode_erc20_address(v)
 end
 
 function encode_utils.encode_erc20_deposit(deposit)
-    local payload = (deposit.successful and "\x01" or "\x00")
-        .. encode_utils.encode_erc20_address(deposit.contract_address)
-        .. encode_utils.encode_erc20_address(deposit.sender_address)
-        .. encode_utils.encode_be256(deposit.amount)
-    if deposit.extra_data then payload = payload .. deposit.extra_data end
-    return payload
+    return encode_utils.encode_erc20_address(deposit.contract_address) -- 20 bytes
+        .. encode_utils.encode_erc20_address(deposit.sender_address) -- 20 bytes
+        .. encode_utils.encode_be256(deposit.amount) -- 32 bytes
+        .. (deposit.extra_data or "")
 end
 
-function encode_utils.encode_erc20_transfer_voucher(voucher)
+function encode_utils.encode_erc20_transfer(transfer)
     return "\169\5\156\187" -- First 4 bytes of "transfer(address,uint256)".
-        .. "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" -- 12 bytes of padding zeros
-        .. encode_utils.encode_erc20_address(voucher.destination_address)
-        .. encode_utils.encode_be256(voucher.amount)
+        .. string.rep("\x00", 12) -- 12 bytes of padding zeros
+        .. encode_utils.encode_erc20_address(transfer.destination_address) -- 20 bytes
+        .. encode_utils.encode_be256(transfer.amount) -- 32 bytes
+end
+
+local EVM_ADVANCE <const> = "\x41\x5b\xf3\x63"
+local VOUCHER <const> = "\x23\x7a\x81\x6f"
+
+function encode_utils.encode_advance_input(input)
+    local payload_offset = input.payload_offset or 0x100
+    local payload_data = input.payload or ""
+    local payload_length = input.payload_length or #payload_data
+    local payload_padding = string.rep("\x00", (32 - payload_length) % 32)
+    return table.concat({
+        EVM_ADVANCE,
+        encode_utils.encode_be256(input.chain_id or 0),
+        encode_utils.encode_be256(input.app_contract or 0),
+        encode_utils.encode_be256(input.msg_sender or 0),
+        encode_utils.encode_be256(input.block_number or 0),
+        encode_utils.encode_be256(input.block_timestamp or 0),
+        encode_utils.encode_be256(input.prev_randao or 0),
+        encode_utils.encode_be256(input.index or 0),
+        encode_utils.encode_be256(payload_offset),
+        encode_utils.encode_be256(payload_length),
+        payload_data,
+        payload_padding,
+    })
+end
+
+function encode_utils.encode_voucher_output(output)
+    local payload_offset = 0x60
+    local payload_data = output.payload or ""
+    local payload_length = #payload_data
+    local payload_padding = string.rep("\x00", (32 - payload_length) % 32)
+    return table.concat({
+        VOUCHER,
+        encode_utils.encode_be256(output.address or 0),
+        encode_utils.encode_be256(output.value or 0),
+        encode_utils.encode_be256(payload_offset),
+        encode_utils.encode_be256(payload_length),
+        payload_data,
+        payload_padding,
+    })
 end
 
 return encode_utils

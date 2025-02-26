@@ -102,7 +102,7 @@ bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STA
     // Finish previous request and wait for the next request.
     cmt_rollup_finish_t finish{};
     finish.accept_previous_request = true;
-    int err = cmt_rollup_finish(rollup, &finish);
+    const int err = cmt_rollup_finish(rollup, &finish);
     if (err < 0) {
         std::ignore = std::fprintf(stderr, "[dapp] unable to perform rollup finish: %s\n", std::strerror(-err));
         return false;
@@ -110,26 +110,11 @@ bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STA
     // Handle request
     switch (finish.next_request_type) {
         case HTIF_YIELD_REASON_ADVANCE: { // Advance state.
-            // Read the input.
-            cmt_rollup_advance_t advance{};
-            err = cmt_rollup_read_advance_state(rollup, &advance);
-            if (err < 0) {
-                std::ignore = std::fprintf(stderr, "[dapp] unable to read advance state: %s\n", std::strerror(-err));
-                return false;
-            }
-            // Call advance state handler.
-            return advance_state(rollup, state, advance);
+            return advance_state(rollup, state);
         }
         case HTIF_YIELD_REASON_INSPECT: { // Inspect state.
-            // Read the query.
-            cmt_rollup_inspect_t inspect{};
-            err = cmt_rollup_read_inspect_state(rollup, &inspect);
-            if (err < 0) {
-                std::ignore = std::fprintf(stderr, "[dapp] unable to read inspect state: %s\n", std::strerror(-err));
-                return false;
-            }
             // Call inspect state handler.
-            return inspect_state(rollup, state, inspect);
+            return inspect_state(rollup, state);
         }
         default: { // Invalid request.
             std::ignore = std::fprintf(stderr, "[dapp] invalid request type\n");
@@ -152,7 +137,6 @@ enum erc20_deposit_status : uint8_t {
 
 // Payload encoding for ERC-20 deposits.
 struct [[gnu::packed]] erc20_deposit {
-    uint8_t status;
     erc20_address token_address;
     erc20_address sender_address;
     be256 amount;
@@ -239,12 +223,11 @@ constexpr erc20_address ERC20_TOKEN_ADDRESS = {CONFIG_ERC20_TOKEN_ADDRESS};
 // Status code sent in as reports for well formed advance requests.
 enum advance_status : uint8_t {
     ADVANCE_STATUS_SUCCESS = 0,
-    ADVANCE_STATUS_DEPOSIT_TRANSFER_FAILED,
+    ADVANCE_STATUS_INVALID_REQUEST,
     ADVANCE_STATUS_DEPOSIT_INVALID_TOKEN,
     ADVANCE_STATUS_DEPOSIT_BALANCE_OVERFLOW,
     ADVANCE_STATUS_WITHDRAW_NO_FUNDS,
     ADVANCE_STATUS_WITHDRAW_VOUCHER_FAILED,
-    ADVANCE_STATUS_INVALID_REQUEST
 };
 
 // POD for advance reports.
@@ -264,12 +247,6 @@ struct [[gnu::packed]] dapp_state {
 
 // Process an ERC-20 deposit request.
 bool process_deposit(cmt_rollup_t *rollup, dapp_state *state, const erc20_deposit &deposit) {
-    // Consider only successful ERC-20 deposits.
-    if (deposit.status != ERC20_DEPOSIT_SUCCESSFUL) {
-        std::ignore = std::fprintf(stderr, "[dapp] deposit erc20 transfer failed\n");
-        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_DEPOSIT_TRANSFER_FAILED});
-        return false;
-    }
     // Check token address.
     if (deposit.token_address != ERC20_TOKEN_ADDRESS) {
         std::ignore = std::fprintf(stderr, "[dapp] invalid deposit token address\n");
@@ -318,7 +295,15 @@ bool process_withdraw(cmt_rollup_t *rollup, dapp_state *state) {
 }
 
 // Process advance state requests.
-bool advance_state(cmt_rollup_t *rollup, dapp_state *state, const cmt_rollup_advance &input) {
+bool advance_state(cmt_rollup_t *rollup, dapp_state *state) {
+    // Read the input.
+    cmt_rollup_advance_t input{};
+    const int err = cmt_rollup_read_advance_state(rollup, &input);
+    if (err < 0) {
+        std::ignore = std::fprintf(stderr, "[dapp] unable to read advance state: %s\n", std::strerror(-err));
+        std::ignore = rollup_emit_report(rollup, advance_report{ADVANCE_STATUS_INVALID_REQUEST});
+        return false;
+    }
     // Deposit?
     if (input.msg_sender == ERC20_PORTAL_ADDRESS && input.payload.length == sizeof(erc20_deposit)) {
         erc20_deposit deposit{};
@@ -336,7 +321,7 @@ bool advance_state(cmt_rollup_t *rollup, dapp_state *state, const cmt_rollup_adv
 }
 
 // Process inspect state queries.
-bool inspect_state(cmt_rollup_t *rollup, dapp_state *state, const cmt_rollup_inspect & /*query*/) {
+bool inspect_state(cmt_rollup_t *rollup, dapp_state *state) {
     // Inspect balance.
     std::ignore = std::fprintf(stderr, "[dapp] inspect balance request\n");
     return rollup_emit_report(rollup, inspect_report{state->balance});
@@ -360,9 +345,9 @@ int main() {
         return -1;
     }
     // Process requests forever.
+    std::ignore = std::fprintf(stderr, "[dapp] processing rollup requests...\n");
     while (true) {
         // Always continue, despite request failing or not.
-        std::ignore = std::fprintf(stderr, "[dapp] waiting next request...\n");
         std::ignore = rollup_process_next_request(&rollup, state, advance_state, inspect_state);
     }
     // Unreachable code, return is intentionally omitted.

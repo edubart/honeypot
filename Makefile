@@ -55,18 +55,19 @@ shell: rootfs.ext2 linux.bin
 lint: honeypot.cpp honeypot-config.hpp
 	clang-tidy $^ -- $(CXXFLAGS) $(INCS)
 
+lint-lua:
+	luacheck .
+
 format: honeypot.cpp honeypot-config.hpp
 	clang-format -i $^
 
 format-lua:
 	stylua --indent-type Spaces --collapse-simple-statement Always \
 		*.lua \
-		cartesi-testlib/encode-utils.lua \
-		cartesi-testlib/rolling-machine.lua
+		cartesi-testlib/encode-utils.lua
 
 test: snapshot
-	lua5.4 honeypot-usual-tests.lua
-	lua5.4 honeypot-edge-tests.lua
+	lua5.4 honeypot-tests.lua
 
 stress-test: snapshot
 	lua5.4 honeypot-stress-tests.lua
