@@ -5,10 +5,11 @@
 
 #include <cerrno>  // errno
 #include <cstdio>  // std::fprintf/stderr
-#include <cstring> // strerror/std::memcmp/std::memcpy
+#include <cstring> // strerror
 
-#include <array> // std::array
-#include <tuple> // std::ignore
+#include <algorithm> // std::equal/std::copy_n
+#include <array>     // std::array
+#include <tuple>     // std::ignore
 
 extern "C" {
 #include <fcntl.h>    // open
@@ -31,7 +32,7 @@ using erc20_address = cmt_abi_address_t;
 
 // Compare two ERC-20 addresses.
 bool operator==(const erc20_address &a, const erc20_address &b) {
-    return std::memcmp(&a, &b, sizeof(erc20_address)) == 0;
+    return std::equal(std::begin(a.data), std::end(a.data), std::begin(b.data));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -308,7 +309,8 @@ bool advance_state(cmt_rollup_t *rollup, dapp_state *state) {
     // Deposit?
     if (input.msg_sender == ERC20_PORTAL_ADDRESS && input.payload.length == sizeof(erc20_deposit)) {
         erc20_deposit deposit{};
-        std::memcpy(&deposit, input.payload.data, sizeof(erc20_deposit));
+        std::copy_n(static_cast<const uint8_t *>(input.payload.data), sizeof(erc20_deposit),
+            reinterpret_cast<uint8_t *>(&deposit)); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
         return process_deposit(rollup, state, deposit);
     }
     // Withdraw?
