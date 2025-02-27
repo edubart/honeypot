@@ -102,8 +102,7 @@ template <typename STATE, typename ADVANCE_STATE, typename INSPECT_STATE>
 bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STATE advance_state,
     INSPECT_STATE inspect_state) {
     // Finish previous request and wait for the next request.
-    cmt_rollup_finish_t finish{};
-    finish.accept_previous_request = true;
+    cmt_rollup_finish_t finish{.accept_previous_request = true};
     const int err = cmt_rollup_finish(rollup, &finish);
     if (err < 0) {
         std::ignore = std::fprintf(stderr, "[dapp] unable to perform rollup finish: %s\n", std::strerror(-err));

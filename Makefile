@@ -2,7 +2,7 @@
 CXX = gcc
 
 # C++ warning flags
-WARN_CXXFLAGS = -Wall -Wextra -Wpedantic -Wformat -Werror=format-security
+WARN_CXXFLAGS = -Wall -Wextra -Wpedantic -Wformat -Werror=format-security -Wno-missing-field-initializers
 
 # C++ optimization flags, use -O1 to be safe of GCC compiler optimizer bugs
 OPT_CXXFLAGS = -O1
