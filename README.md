@@ -60,7 +60,7 @@ The application is designed to be secure with the following features:
 
 ### Building the Application
 
-To build the application and create a Cartesi machine snapshot:
+To build the application and create a machine snapshot:
 
 ```bash
 make
@@ -69,7 +69,7 @@ make
 This will:
 1. Compile the C++ application
 2. Build the root filesystem
-3. Create a Cartesi machine snapshot
+3. Create a machine snapshot
 
 ### Running Tests
 
