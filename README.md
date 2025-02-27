@@ -1,12 +1,14 @@
-## Instructions
+# Honeypot
 
 To run the tests:
 
 ```shell
 # build the dapp snapshot
-make snapshot
+make
 
-# run tests
+# run basic tests
 make test
-make stress-test
+
+# run stress tests
+make test-stress
 ```

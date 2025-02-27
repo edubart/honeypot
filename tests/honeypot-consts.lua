@@ -1,0 +1,19 @@
+local consts = {
+    ERC20_PORTAL_ADDRESS = "0x4340ac4FcdFC5eF8d34930C96BBac2Af1301DF40",
+    ERC20_WITHDRAW_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    ERC20_TOKEN_ADDRESS = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+
+    ADVANCE_STATUS_SUCCESS = string.char(0),
+    ADVANCE_STATUS_INVALID_REQUEST = string.char(1),
+    ADVANCE_STATUS_DEPOSIT_INVALID_TOKEN = string.char(2),
+    ADVANCE_STATUS_DEPOSIT_BALANCE_OVERFLOW = string.char(3),
+    ADVANCE_STATUS_WITHDRAW_NO_FUNDS = string.char(4),
+    ADVANCE_STATUS_WITHDRAW_VOUCHER_FAILED = string.char(5),
+}
+
+local encoder = require("testlib.encoder")
+consts.ERC20_PORTAL_ADDRESS_ENCODED = encoder.encode_erc20_address(consts.ERC20_PORTAL_ADDRESS)
+consts.ERC20_WITHDRAW_ADDRESS_ENCODED = encoder.encode_erc20_address(consts.ERC20_WITHDRAW_ADDRESS)
+consts.ERC20_TOKEN_ADDRESS_ENCODED = encoder.encode_erc20_address(consts.ERC20_TOKEN_ADDRESS)
+
+return consts

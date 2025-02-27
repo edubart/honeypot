@@ -46,7 +46,9 @@ bool be256_checked_add(be256 &res, const be256 &a, const be256 &b) {
     uint16_t carry = 0;
     for (size_t i = 0; i < res.size(); ++i) {
         const size_t j = res.size() - i - 1;
-        const uint16_t tmp = carry + a[j] + b[j];
+        const uint16_t aj = a[j];
+        const uint16_t bj = b[j];
+        const uint16_t tmp = carry + aj + bj;
         res[j] = static_cast<uint8_t>(tmp);
         carry = tmp >> 8U;
     }

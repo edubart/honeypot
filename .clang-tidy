@@ -1,6 +1,7 @@
 Checks: >-
   boost*,
   bugprone*,
+  -bugprone-easily-swappable-parameters,
   cert*,
   clang-analyzer*,
   cppcoreguidelines*,

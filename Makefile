@@ -1,6 +1,13 @@
+# C++ compiler
 CXX = gcc
+
+# C++ warning flags
 WARN_CXXFLAGS = -Wall -Wextra -Wpedantic -Wformat -Werror=format-security
+
+# C++ optimization flags, use -O1 to be safe of GCC compiler optimizer bugs
 OPT_CXXFLAGS = -O1
+
+# C++ flags to improve safety
 HARDEN_CXXFLAGS = \
 	-D_FORTIFY_SOURCE=3 \
 	-D_GLIBCXX_ASSERTIONS \
@@ -10,6 +17,8 @@ HARDEN_CXXFLAGS = \
 	-fno-strict-aliasing \
 	-fno-strict-overflow \
 	-fPIE
+
+# Use C++20, without exceptions and RTTI to have minimal overhead and predictable behavior
 CXXFLAGS += \
 	-std=c++20 \
 	-fno-exceptions \
@@ -17,65 +26,95 @@ CXXFLAGS += \
 	$(WARN_CXXFLAGS) \
 	$(OPT_CXXFLAGS)
 
+# Use libcmt for CMIO device control
+LIBS = -l:libcmt.a
+
+# Linker flags to improve safety
 HARDEN_LDFLAGS = \
 	-pie \
 	-Wl,-z,relro \
 	-Wl,-z,now
-LIBS = -l:libcmt.a
-LDFLAGS += -Wl,--build-id=none $(HARDEN_LDFLAGS) $(LIBS)
+LDFLAGS += -Wl,--build-id=none $(HARDEN_LDFLAGS)
 
+# Machine entrypoint
 MACHINE_ENTRYPOINT = /home/dapp/honeypot
+
+# Machine initial kernel and flash drives
 MACHINE_FLAGS = \
 	--ram-image=linux.bin \
 	--flash-drive=label:root,filename:rootfs.ext2 \
 	--flash-drive=label:state,length:4096
 
-# TODO: remove me
-INCS += -I/home/bart/projects/cartesi/machine/guest-tools/sys-utils/libcmt/include
+# Current architecture
+ARCH := $(shell uname -m)
 
-honeypot: honeypot.cpp honeypot-config.hpp
-	$(CXX) $(CXXFLAGS) $(HARDEN_CXXFLAGS) -o $@ $< $(LDFLAGS)
+ifneq ($(ARCH),riscv64)
+# For linting in the host
+INCS += -I./libcmt/include
+endif
 
-rootfs.tar: Dockerfile honeypot.cpp honeypot-config.hpp
-	docker buildx build --progress plain --output type=tar,dest=$@ .
+SOURCES = honeypot.cpp honeypot-config.hpp
 
-rootfs.ext2: rootfs.tar
-	xgenext2fs --block-size 4096 --faketime --readjustment +4096 --tarball $< $@
+ifeq ($(ARCH),riscv64)
+all: honeypot ## Build honeypot binary when inside RISC-V environment, otherwise honeypot machine snapshot
+else
+all: snapshot
+endif
 
-linux.bin:
-	wget -O linux.bin https://github.com/cartesi/machine-linux-image/releases/download/v0.20.0/linux-6.5.13-ctsi-1-v0.20.0.bin
+honeypot: $(SOURCES) ## Build honeypot binary
+	$(CXX) $(CXXFLAGS) $(HARDEN_CXXFLAGS) -o $@ $< $(LDFLAGS) $(LIBS)
 
-snapshot: rootfs.ext2 linux.bin
+snapshot: rootfs.ext2 linux.bin ## Generate cartesi machine genesis snapshot
 	rm -rf snapshot
 	cartesi-machine $(MACHINE_FLAGS) --assert-rolling-template --final-hash --store=$@ -- $(MACHINE_ENTRYPOINT)
 
-shell: rootfs.ext2 linux.bin
+rootfs.ext2: rootfs.tar ## Generate cartesi machine rootfs EXT2 filesystem
+	xgenext2fs --block-size 4096 --faketime --readjustment +4096 --tarball $< $@
+
+rootfs.tar: rootfs.Dockerfile $(SOURCES) ## Generate cartesi machine rootfs filesystem using Docker
+	docker buildx build --progress plain --output type=tar,dest=$@ --file rootfs.Dockerfile .
+
+linux.bin: ## Download cartesi machine Linux kernel
+	wget -O linux.bin https://github.com/cartesi/machine-linux-image/releases/download/v0.20.0/linux-6.5.13-ctsi-1-v0.20.0.bin
+
+shell: rootfs.ext2 linux.bin ## Spawn a cartesi machine guest shell for debugging
 	cartesi-machine $(MACHINE_FLAGS) -v=.:/mnt -u=root -i -- /bin/bash
 
-lint: honeypot.cpp honeypot-config.hpp
+lint: lint-cpp lint-lua ## Format C++ and Lua code
+
+lint-cpp: $(SOURCES) ## Lint C++ code
 	clang-tidy $^ -- $(CXXFLAGS) $(INCS)
 
-lint-lua:
+lint-lua: ## Lint Lua code
 	luacheck .
 
-format: honeypot.cpp honeypot-config.hpp
+format: format-cpp format-lua ## Format C++ and Lua code
+
+format-cpp: $(SOURCES) ## Format C++ code
 	clang-format -i $^
 
-format-lua:
+format-lua: ## Format Lua code
 	stylua --indent-type Spaces --collapse-simple-statement Always \
-		*.lua \
-		cartesi-testlib/encode-utils.lua
+		tests/*.lua \
+		tests/testlib/*.lua
 
-test: snapshot
-	lua5.4 honeypot-tests.lua
+test: snapshot ## Run tests
+	cd tests && lua5.4 honeypot-tests.lua
 
-stress-test: snapshot
-	lua5.4 honeypot-stress-tests.lua
+test-stress: snapshot ## Run stress tests
+	cd tests && lua5.4 honeypot-stress-tests.lua
 
-clean:
+clean: ## Clean generated files
 	rm -rf snapshot rootfs.ext2 rootfs.tar honeypot
 
-distclean: clean
+distclean: clean ## Clean generated and downloaded files
 	rm -rf linux.bin
 
-.PHONY: shell lint format format-lua test stress-test clean distclean
+help: ## Show this help
+	@sed \
+		-e '/^[a-zA-Z0-9_\-]*:.*##/!d' \
+		-e 's/:.*##\s*/:/' \
+		-e 's/^\(.\+\):\(.*\)/$(shell tput setaf 6)\1$(shell tput sgr0):\2/' \
+		$(MAKEFILE_LIST) | column -c2 -t -s :
+
+.PHONY: all shell lint lint-cpp lint-lua format format-cpp format-lua test test-stress clean distclean help
