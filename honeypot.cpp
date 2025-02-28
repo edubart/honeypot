@@ -5,7 +5,7 @@
 
 #include <cerrno>  // errno
 #include <cstdio>  // std::fprintf/stderr
-#include <cstring> // strerror
+#include <cstring> // std::strerror
 
 #include <algorithm> // std::equal/std::copy_n
 #include <array>     // std::array
@@ -131,11 +131,6 @@ bool rollup_process_next_request(cmt_rollup_t *rollup, STATE *state, ADVANCE_STA
 // Bytecode for solidity 'transfer(address,uint256)' in solidity.
 #define TRANSFER_FUNCTION_SELECTOR_BYTES                                                                               \
     {0xa9, 0x05, 0x9c, 0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-
-enum erc20_deposit_status : uint8_t {
-    ERC20_DEPOSIT_FAILED = 0,
-    ERC20_DEPOSIT_SUCCESSFUL = 1,
-};
 
 // Payload encoding for ERC-20 deposits.
 struct [[gnu::packed]] erc20_deposit {
