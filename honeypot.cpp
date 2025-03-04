@@ -330,6 +330,11 @@ bool inspect_state(cmt_rollup_t *rollup, dapp_state *state) {
 // Application main.
 int main() {
     cmt_rollup_t rollup{};
+    // Disable buffering of stderr to avoid dynamic allocations behind the scenes
+    if (std::setvbuf(stderr, nullptr, _IONBF, 0) != 0) {
+        std::ignore = std::fprintf(stderr, "[dapp] unable to disable stderr buffering: %s\n", std::strerror(errno));
+        return -1;
+    }
     // Load dapp state from disk.
     auto *state = dapp_load_state<dapp_state>(CONFIG_STATE_BLOCK_DEVICE);
     if (state == nullptr) {
